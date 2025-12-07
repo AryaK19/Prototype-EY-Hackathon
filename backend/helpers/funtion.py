@@ -7,6 +7,10 @@ from bs4 import BeautifulSoup
 import time
 from urllib.parse import quote, urljoin
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(

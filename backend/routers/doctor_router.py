@@ -162,21 +162,46 @@ def verify_full_name(input_name: str, scraped_data: Dict, best_provider) -> Dict
     }
     
     try:
+        found_name = None
+        data_source = None
+        
+        # First, try NPI Registry
         if best_provider and isinstance(best_provider, dict):
             basic_info = best_provider.get("basic", {})
             
             if isinstance(basic_info, dict):
-                correct_name = f"{basic_info.get('first_name', '')} {basic_info.get('last_name', '')}".strip()
+                found_name = f"{basic_info.get('first_name', '')} {basic_info.get('last_name', '')}".strip()
+                if found_name:
+                    data_source = "NPI Registry"
+        
+        # If no name in NPI, try other scraped sources
+        if not found_name and scraped_data.get("name"):
+            found_name = scraped_data.get("name")
+            data_source = "Provider Directories"
+        
+        # Try Google Places data
+        if not found_name:
+            practice_locations = scraped_data.get("practice_locations", [])
+            if isinstance(practice_locations, list) and practice_locations:
+                for location in practice_locations:
+                    if isinstance(location, dict) and location.get("doctor_name"):
+                        found_name = location["doctor_name"]
+                        data_source = "Google Places"
+                        break
+        
+        # Set results
+        if found_name:
+            result["scraped_data_field_a"] = found_name
+            result["scraped_from"] = data_source
+            
+            if input_name and input_name.strip():
+                similarity = calculate_name_similarity(input_name, found_name)
+                result["matches"] = similarity >= 0.8
+            else:
+                result["matches"] = None  # No input to compare
+        
+        logger.debug(f"Name verification: input='{input_name}', found='{found_name}', source='{data_source}'")
                 
-                if correct_name:
-                    result["scraped_data_field_a"] = correct_name
-                    result["scraped_from"] = "NPI Registry"
-                    
-                    if input_name and input_name.strip():
-                        similarity = calculate_name_similarity(input_name, correct_name)
-                        result["matches"] = similarity >= 0.8
-                    else:
-                        result["matches"] = None  # No input to compare
     except Exception as e:
         logger.error(f"Error in verify_full_name: {str(e)}")
     
@@ -192,35 +217,56 @@ def verify_specialty(input_specialty: str, scraped_data: Dict, best_provider) ->
     }
     
     try:
+        found_specialty = None
+        data_source = None
+        
+        # First, try NPI Registry
         if best_provider and isinstance(best_provider, dict):
             taxonomies = best_provider.get("taxonomies", [])
             if taxonomies and isinstance(taxonomies, list):
                 # Get primary specialty first
-                primary_specialty = None
                 for tax in taxonomies:
                     if isinstance(tax, dict) and tax.get("primary") == True:
-                        primary_specialty = tax.get("desc")
+                        found_specialty = tax.get("desc")
+                        data_source = "NPI Registry"
                         break
                 
                 # If no primary found, get first available
-                if not primary_specialty and taxonomies:
+                if not found_specialty and taxonomies:
                     for tax in taxonomies:
                         if isinstance(tax, dict):
                             desc = tax.get("desc")
                             if desc:
-                                primary_specialty = desc
+                                found_specialty = desc
+                                data_source = "NPI Registry"
                                 break
-                
-                if primary_specialty:
-                    result["scraped_data_field_a"] = primary_specialty
-                    result["scraped_from"] = "NPI Registry"
-                    
-                    if input_specialty and input_specialty.strip():
-                        input_lower = input_specialty.lower()
-                        primary_lower = primary_specialty.lower()
-                        result["matches"] = input_lower in primary_lower or primary_lower in input_lower
-                    else:
-                        result["matches"] = None
+        
+        # If no specialty in NPI, try other sources
+        if not found_specialty and scraped_data.get("specialty"):
+            found_specialty = scraped_data.get("specialty")
+            data_source = "Provider Directories"
+        
+        # Try services offered from scraped data
+        if not found_specialty:
+            services_offered = scraped_data.get("services_offered", [])
+            if isinstance(services_offered, list) and services_offered:
+                found_specialty = services_offered[0]  # Take first service as specialty
+                data_source = "Provider Directories"
+        
+        # Set results
+        if found_specialty:
+            result["scraped_data_field_a"] = found_specialty
+            result["scraped_from"] = data_source
+            
+            if input_specialty and input_specialty.strip():
+                input_lower = input_specialty.lower()
+                specialty_lower = found_specialty.lower()
+                result["matches"] = input_lower in specialty_lower or specialty_lower in input_lower
+            else:
+                result["matches"] = None
+        
+        logger.debug(f"Specialty verification: input='{input_specialty}', found='{found_specialty}', source='{data_source}'")
+        
     except Exception as e:
         logger.error(f"Error in verify_specialty: {str(e)}")
     
@@ -236,51 +282,83 @@ def verify_address(input_address: str, scraped_data: Dict, best_provider) -> Dic
     }
     
     try:
+        best_address = None
+        best_similarity = 0.0
+        data_source = None
+        
+        # First, try NPI Registry data
         if best_provider and isinstance(best_provider, dict):
-            # Check both addresses and practiceLocations
             all_addresses = []
             
-            # Add addresses
+            # Add addresses from NPI
             addresses = best_provider.get("addresses", [])
             if isinstance(addresses, list):
                 all_addresses.extend(addresses)
             
-            # Add practiceLocations
+            # Add practiceLocations from NPI  
             practice_locations = best_provider.get("practiceLocations", [])
             if isinstance(practice_locations, list):
                 all_addresses.extend(practice_locations)
             
-            best_address = None
-            best_similarity = 0.0
-            
             for addr in all_addresses:
-                if isinstance(addr, dict) and addr.get("address_purpose") == "LOCATION":
+                if isinstance(addr, dict):
+                    # Handle both address types
                     addr_line1 = addr.get('address_1', '')
                     addr_line2 = addr.get('address_2', '')
                     city = addr.get('city', '')
                     state = addr.get('state', '')
                     postal = addr.get('postal_code', '')
                     
+                    # Format address
                     formatted_address = f"{addr_line1} {addr_line2}".strip()
                     if city or state or postal:
                         formatted_address += f", {city}, {state} {postal}".strip()
                     
-                    if input_address and input_address.strip():
-                        similarity = calculate_address_similarity(input_address, formatted_address)
-                        if similarity > best_similarity:
-                            best_similarity = similarity
+                    if formatted_address.strip():
+                        if input_address and input_address.strip():
+                            similarity = calculate_address_similarity(input_address, formatted_address)
+                            if similarity > best_similarity:
+                                best_similarity = similarity
+                                best_address = formatted_address
+                                data_source = "NPI Registry"
+                        elif not best_address:
                             best_address = formatted_address
-                    elif not best_address:
-                        best_address = formatted_address
-            
-            if best_address:
-                result["scraped_data_field_a"] = best_address
-                result["scraped_from"] = "NPI Registry"
+                            data_source = "NPI Registry"
+        
+        # If no address found in NPI, try Google Places
+        if not best_address and scraped_data.get("address"):
+            google_address = scraped_data.get("address")
+            if google_address and google_address.strip():
+                best_address = google_address
+                data_source = "Google Places"
                 
                 if input_address and input_address.strip():
-                    result["matches"] = best_similarity >= 0.6
-                else:
-                    result["matches"] = None
+                    best_similarity = calculate_address_similarity(input_address, google_address)
+        
+        # Try other scraped sources if still no address
+        if not best_address:
+            # Check practice_locations from scraped_data
+            practice_locations = scraped_data.get("practice_locations", [])
+            if isinstance(practice_locations, list) and practice_locations:
+                location = practice_locations[0]  # Take first location
+                if isinstance(location, dict) and location.get("address"):
+                    best_address = location["address"]
+                    data_source = "Provider Directories"
+                    
+                    if input_address and input_address.strip():
+                        best_similarity = calculate_address_similarity(input_address, best_address)
+        
+        # Set results
+        if best_address:
+            result["scraped_data_field_a"] = best_address
+            result["scraped_from"] = data_source
+            
+            if input_address and input_address.strip():
+                result["matches"] = best_similarity >= 0.6
+            else:
+                result["matches"] = None
+        
+        logger.debug(f"Address verification: input='{input_address}', found='{best_address}', source='{data_source}', similarity={best_similarity}")
                     
     except Exception as e:
         logger.error(f"Error in verify_address: {str(e)}")
@@ -303,6 +381,10 @@ def verify_phone_number(input_phone: str, scraped_data: Dict, best_provider) -> 
         return ''.join(filter(str.isdigit, phone))
     
     try:
+        found_phone = None
+        data_source = None
+        
+        # First, try NPI Registry
         if best_provider and isinstance(best_provider, dict):
             # Check both addresses and practiceLocations for phone numbers
             all_locations = []
@@ -317,18 +399,38 @@ def verify_phone_number(input_phone: str, scraped_data: Dict, best_provider) -> 
             
             for addr in all_locations:
                 if (isinstance(addr, dict) and 
-                    addr.get("address_purpose") == "LOCATION" and 
                     addr.get("telephone_number")):
                     
-                    correct_phone = addr.get("telephone_number")
-                    result["scraped_data_field_a"] = correct_phone
-                    result["scraped_from"] = "NPI Registry"
-                    
-                    if input_phone and input_phone.strip():
-                        result["matches"] = normalize_phone(input_phone) == normalize_phone(correct_phone)
-                    else:
-                        result["matches"] = None
+                    found_phone = addr.get("telephone_number")
+                    data_source = "NPI Registry"
                     break
+        
+        # If no phone in NPI, try Google Places
+        if not found_phone and scraped_data.get("phone_number"):
+            found_phone = scraped_data.get("phone_number")
+            data_source = "Google Places"
+        
+        # Try other scraped sources
+        if not found_phone:
+            practice_locations = scraped_data.get("practice_locations", [])
+            if isinstance(practice_locations, list) and practice_locations:
+                for location in practice_locations:
+                    if isinstance(location, dict) and location.get("phone"):
+                        found_phone = location["phone"]
+                        data_source = "Provider Directories"
+                        break
+        
+        # Set results
+        if found_phone:
+            result["scraped_data_field_a"] = found_phone
+            result["scraped_from"] = data_source
+            
+            if input_phone and input_phone.strip():
+                result["matches"] = normalize_phone(input_phone) == normalize_phone(found_phone)
+            else:
+                result["matches"] = None
+        
+        logger.debug(f"Phone verification: input='{input_phone}', found='{found_phone}', source='{data_source}'")
                     
     except Exception as e:
         logger.error(f"Error in verify_phone_number: {str(e)}")

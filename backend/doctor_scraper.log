@@ -1,0 +1,139 @@
+2025-12-07 19:26:07,503 - INFO - Starting server in development mode...
+2025-12-07 19:26:08,418 - INFO - EY Hackathon Doctor Verification API starting up...
+2025-12-07 19:26:08,419 - INFO - API startup completed
+2025-12-07 19:26:08,489 - INFO - 2 changes detected
+2025-12-07 19:38:30,353 - INFO - Starting doctor verification for: Sarah Johnson
+2025-12-07 19:38:30,354 - INFO - Starting search for Dr. Sarah Johnson - Specialty: Family Medicine
+2025-12-07 19:38:30,354 - INFO - Step 1: Searching NPI Registry...
+2025-12-07 19:38:30,355 - INFO - Searching NPI for: Sarah Johnson
+2025-12-07 19:38:31,340 - INFO - NPI Registry data found: 8 records
+2025-12-07 19:38:31,346 - INFO - Step 2: Searching Healthcare Provider Directories...
+2025-12-07 19:38:31,405 - INFO - Searching Healthgrades: https://www.healthgrades.com/usearch?what=Sarah%20Johnson%20Family%20Medicine&where=
+2025-12-07 19:38:31,703 - INFO - Searching WebMD: https://doctor.webmd.com/search?query=Sarah%20Johnson&specialty=Family%20Medicine
+2025-12-07 19:38:33,047 - INFO - Step 3: Searching Google Places...
+2025-12-07 19:38:33,047 - WARNING - Google Places API key not found. Set GOOGLE_PLACES_API_KEY environment variable.
+2025-12-07 19:38:33,048 - INFO - Google Places search skipped (API key required)
+2025-12-07 19:38:33,048 - INFO - Step 4: Searching State Medical Board information...
+2025-12-07 19:38:33,049 - INFO - Medical board search for: Sarah Johnson
+2025-12-07 19:38:33,049 - INFO - Medical board search requires state-specific implementation
+2025-12-07 19:38:33,049 - INFO - Search completed. Found data from 4 sources
+2025-12-07 19:38:33,059 - INFO - Verification completed for Sarah Johnson
+2025-12-07 19:58:36,764 - INFO - 1 change detected
+2025-12-07 19:58:37,136 - INFO - 1 change detected
+2025-12-07 19:58:37,498 - INFO - 1 change detected
+2025-12-07 19:58:37,855 - INFO - 1 change detected
+2025-12-07 19:58:38,216 - INFO - 1 change detected
+2025-12-07 19:58:38,569 - INFO - 1 change detected
+2025-12-07 19:58:38,931 - INFO - 1 change detected
+2025-12-07 19:58:39,291 - INFO - 1 change detected
+2025-12-07 19:58:39,652 - INFO - 1 change detected
+2025-12-07 19:58:40,062 - INFO - 1 change detected
+2025-12-07 19:58:40,465 - INFO - 1 change detected
+2025-12-07 19:58:40,870 - INFO - 1 change detected
+2025-12-07 19:58:41,274 - INFO - 1 change detected
+2025-12-07 19:58:41,680 - INFO - 1 change detected
+2025-12-07 19:58:42,085 - INFO - 1 change detected
+2025-12-07 19:58:42,489 - INFO - 1 change detected
+2025-12-07 19:58:42,895 - INFO - 1 change detected
+2025-12-07 19:58:43,304 - INFO - 1 change detected
+2025-12-07 19:58:43,711 - INFO - 1 change detected
+2025-12-07 19:58:44,118 - INFO - 1 change detected
+2025-12-07 19:58:44,522 - INFO - 1 change detected
+2025-12-07 19:58:44,926 - INFO - 1 change detected
+2025-12-07 19:58:45,331 - INFO - 1 change detected
+2025-12-07 19:58:45,739 - INFO - 1 change detected
+2025-12-07 19:58:46,146 - INFO - 1 change detected
+2025-12-07 19:58:46,551 - INFO - 1 change detected
+2025-12-07 19:58:46,918 - INFO - 1 change detected
+2025-12-07 19:58:47,330 - INFO - 1 change detected
+2025-12-07 19:58:47,739 - INFO - 1 change detected
+2025-12-07 19:58:48,143 - INFO - 1 change detected
+2025-12-07 19:58:48,549 - INFO - 1 change detected
+2025-12-07 19:58:48,955 - INFO - 1 change detected
+2025-12-07 19:58:49,358 - INFO - 1 change detected
+2025-12-07 19:58:49,766 - INFO - 1 change detected
+2025-12-07 19:58:50,171 - INFO - 1 change detected
+2025-12-07 19:58:50,576 - INFO - 1 change detected
+2025-12-07 19:58:50,981 - INFO - 1 change detected
+2025-12-07 19:58:51,348 - INFO - 1 change detected
+2025-12-07 19:58:51,760 - INFO - 1 change detected
+2025-12-07 19:58:52,166 - INFO - 1 change detected
+2025-12-07 19:58:52,570 - INFO - 1 change detected
+2025-12-07 19:58:52,925 - INFO - 1 change detected
+2025-12-07 19:58:53,282 - INFO - 1 change detected
+2025-12-07 19:58:53,642 - INFO - 1 change detected
+2025-12-07 19:58:53,999 - INFO - 1 change detected
+2025-12-07 19:58:54,359 - INFO - 1 change detected
+2025-12-07 19:58:54,770 - INFO - 1 change detected
+2025-12-07 19:58:55,137 - INFO - 1 change detected
+2025-12-07 19:58:55,695 - INFO - 1 change detected
+2025-12-07 19:58:56,109 - INFO - 1 change detected
+2025-12-07 19:58:56,564 - INFO - 1 change detected
+2025-12-07 19:58:56,931 - INFO - 1 change detected
+2025-12-07 19:58:57,288 - INFO - 2 changes detected
+2025-12-07 19:58:57,645 - INFO - 1 change detected
+2025-12-07 19:58:58,056 - INFO - 1 change detected
+2025-12-07 19:58:58,459 - INFO - 1 change detected
+2025-12-07 19:58:58,814 - INFO - 1 change detected
+2025-12-07 19:58:59,172 - INFO - 1 change detected
+2025-12-07 19:58:59,530 - INFO - 1 change detected
+2025-12-07 19:58:59,892 - INFO - 1 change detected
+2025-12-07 19:59:00,249 - INFO - 1 change detected
+2025-12-07 19:59:00,659 - INFO - 1 change detected
+2025-12-07 19:59:01,068 - INFO - 1 change detected
+2025-12-07 19:59:01,485 - INFO - 1 change detected
+2025-12-07 19:59:01,839 - INFO - 1 change detected
+2025-12-07 19:59:02,267 - INFO - 1 change detected
+2025-12-07 19:59:02,672 - INFO - 1 change detected
+2025-12-07 19:59:03,077 - INFO - 1 change detected
+2025-12-07 19:59:03,482 - INFO - 1 change detected
+2025-12-07 19:59:03,886 - INFO - 1 change detected
+2025-12-07 19:59:04,292 - INFO - 1 change detected
+2025-12-07 19:59:04,697 - INFO - 1 change detected
+2025-12-07 19:59:05,103 - INFO - 1 change detected
+2025-12-07 19:59:05,509 - INFO - 1 change detected
+2025-12-07 19:59:05,914 - INFO - 1 change detected
+2025-12-07 19:59:06,320 - INFO - 1 change detected
+2025-12-07 19:59:06,724 - INFO - 1 change detected
+2025-12-07 19:59:07,180 - INFO - 1 change detected
+2025-12-07 19:59:07,583 - INFO - 1 change detected
+2025-12-07 19:59:08,021 - INFO - 1 change detected
+2025-12-07 19:59:08,404 - INFO - 1 change detected
+2025-12-07 19:59:08,763 - INFO - 1 change detected
+2025-12-07 19:59:09,122 - INFO - 1 change detected
+2025-12-07 19:59:09,542 - INFO - 1 change detected
+2025-12-07 19:59:09,898 - INFO - 1 change detected
+2025-12-07 19:59:10,262 - INFO - 1 change detected
+2025-12-07 19:59:10,619 - INFO - 1 change detected
+2025-12-07 19:59:10,977 - INFO - 1 change detected
+2025-12-07 19:59:11,336 - INFO - 1 change detected
+2025-12-07 19:59:11,748 - INFO - 1 change detected
+2025-12-07 19:59:12,151 - INFO - 1 change detected
+2025-12-07 19:59:12,557 - INFO - 1 change detected
+2025-12-07 19:59:12,963 - INFO - 1 change detected
+2025-12-07 19:59:13,366 - INFO - 1 change detected
+2025-12-07 19:59:13,775 - INFO - 1 change detected
+2025-12-07 19:59:14,280 - INFO - 1 change detected
+2025-12-07 19:59:14,645 - INFO - 1 change detected
+2025-12-07 19:59:15,088 - INFO - 1 change detected
+2025-12-07 19:59:15,471 - INFO - 1 change detected
+2025-12-07 20:04:08,921 - INFO - 1 change detected
+2025-12-07 20:04:12,208 - INFO - 1 change detected
+2025-12-07 20:04:13,783 - INFO - 1 change detected
+2025-12-07 20:04:18,982 - INFO - Starting doctor verification for: Sarah Johnson
+2025-12-07 20:04:18,983 - INFO - Starting search for Dr. Sarah Johnson - Specialty: Family Medicine
+2025-12-07 20:04:18,983 - INFO - Step 1: Searching NPI Registry...
+2025-12-07 20:04:18,984 - INFO - Searching NPI for: Sarah Johnson
+2025-12-07 20:04:19,947 - INFO - NPI Registry data found: 8 records
+2025-12-07 20:04:19,952 - INFO - Step 2: Searching Healthcare Provider Directories...
+2025-12-07 20:04:19,957 - INFO - Searching Healthgrades: https://www.healthgrades.com/usearch?what=Sarah%20Johnson%20Family%20Medicine&where=
+2025-12-07 20:04:20,606 - INFO - Searching WebMD: https://doctor.webmd.com/search?query=Sarah%20Johnson&specialty=Family%20Medicine
+2025-12-07 20:04:21,980 - INFO - Step 3: Searching Google Places...
+2025-12-07 20:04:21,981 - WARNING - Google Places API key not found. Set GOOGLE_PLACES_API_KEY environment variable.
+2025-12-07 20:04:21,982 - INFO - Google Places search skipped (API key required)
+2025-12-07 20:04:21,982 - INFO - Step 4: Searching State Medical Board information...
+2025-12-07 20:04:21,983 - INFO - Medical board search for: Sarah Johnson
+2025-12-07 20:04:21,984 - INFO - Medical board search requires state-specific implementation
+2025-12-07 20:04:21,984 - INFO - Search completed. Found data from 4 sources
+2025-12-07 20:04:21,992 - INFO - Verification completed for Sarah Johnson
+2025-12-07 22:21:35,018 - INFO - 1 change detected

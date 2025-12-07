@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import './VerifyPage.css';
@@ -57,18 +57,236 @@ const INSURANCE_NETWORKS = [
     'Tricare',
 ];
 
+// Field display names and icons
+const FIELD_CONFIG = {
+    fullName: { label: 'Full Name', icon: '👤', category: 'identity' },
+    specialty: { label: 'Specialty', icon: '🏥', category: 'identity' },
+    address: { label: 'Address', icon: '📍', category: 'contact' },
+    phoneNumber: { label: 'Phone Number', icon: '📞', category: 'contact' },
+    licenseNumber: { label: 'License Number', icon: '🪪', category: 'credentials' },
+    insuranceNetworks: { label: 'Insurance Networks', icon: '🏛️', category: 'network' },
+    servicesOffered: { label: 'Services Offered', icon: '⚕️', category: 'services' },
+};
+
+// Donut Chart Component
+const DonutChart = ({ verified, unverified, notFound }) => {
+    const total = verified + unverified + notFound;
+    if (total === 0) return null;
+
+    const verifiedPercent = (verified / total) * 100;
+    const unverifiedPercent = (unverified / total) * 100;
+    const notFoundPercent = (notFound / total) * 100;
+
+    // Calculate stroke-dasharray for each segment
+    const circumference = 2 * Math.PI * 45; // radius = 45
+    const verifiedDash = (verifiedPercent / 100) * circumference;
+    const unverifiedDash = (unverifiedPercent / 100) * circumference;
+    const notFoundDash = (notFoundPercent / 100) * circumference;
+
+    return (
+        <div className="donut-chart">
+            <svg viewBox="0 0 120 120" className="donut-chart__svg">
+                {/* Background circle */}
+                <circle
+                    cx="60"
+                    cy="60"
+                    r="45"
+                    fill="none"
+                    stroke="rgba(255,255,255,0.1)"
+                    strokeWidth="12"
+                />
+                {/* Not found segment */}
+                <circle
+                    cx="60"
+                    cy="60"
+                    r="45"
+                    fill="none"
+                    stroke="var(--neutral-500)"
+                    strokeWidth="12"
+                    strokeDasharray={`${notFoundDash} ${circumference}`}
+                    strokeDashoffset={0}
+                    transform="rotate(-90 60 60)"
+                    className="donut-segment"
+                />
+                {/* Unverified segment */}
+                <circle
+                    cx="60"
+                    cy="60"
+                    r="45"
+                    fill="none"
+                    stroke="var(--error-400)"
+                    strokeWidth="12"
+                    strokeDasharray={`${unverifiedDash} ${circumference}`}
+                    strokeDashoffset={-notFoundDash}
+                    transform="rotate(-90 60 60)"
+                    className="donut-segment"
+                />
+                {/* Verified segment */}
+                <circle
+                    cx="60"
+                    cy="60"
+                    r="45"
+                    fill="none"
+                    stroke="var(--success-400)"
+                    strokeWidth="12"
+                    strokeDasharray={`${verifiedDash} ${circumference}`}
+                    strokeDashoffset={-(notFoundDash + unverifiedDash)}
+                    transform="rotate(-90 60 60)"
+                    className="donut-segment"
+                />
+                {/* Center text */}
+                <text x="60" y="55" textAnchor="middle" className="donut-chart__value">
+                    {Math.round(verifiedPercent)}%
+                </text>
+                <text x="60" y="72" textAnchor="middle" className="donut-chart__label">
+                    Verified
+                </text>
+            </svg>
+            <div className="donut-chart__legend">
+                <div className="donut-legend__item">
+                    <span className="donut-legend__dot donut-legend__dot--verified"></span>
+                    <span>Verified ({verified})</span>
+                </div>
+                <div className="donut-legend__item">
+                    <span className="donut-legend__dot donut-legend__dot--unverified"></span>
+                    <span>Mismatch ({unverified})</span>
+                </div>
+                <div className="donut-legend__item">
+                    <span className="donut-legend__dot donut-legend__dot--notfound"></span>
+                    <span>Not Found ({notFound})</span>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// Bar Chart Component for field confidence
+const FieldConfidenceChart = ({ fields }) => {
+    return (
+        <div className="field-chart">
+            <h4 className="field-chart__title">Field Verification Status</h4>
+            <div className="field-chart__bars">
+                {fields.map((field, index) => (
+                    <motion.div
+                        key={field.name}
+                        className="field-bar"
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: index * 0.1 }}
+                    >
+                        <div className="field-bar__info">
+                            <span className="field-bar__icon">{field.icon}</span>
+                            <span className="field-bar__name">{field.label}</span>
+                        </div>
+                        <div className="field-bar__track">
+                            <motion.div
+                                className={`field-bar__fill field-bar__fill--${field.status}`}
+                                initial={{ width: 0 }}
+                                animate={{ width: field.status === 'verified' ? '100%' : field.status === 'mismatch' ? '100%' : '30%' }}
+                                transition={{ duration: 0.6, delay: 0.3 + index * 0.1 }}
+                            />
+                        </div>
+                        <span className={`field-bar__status field-bar__status--${field.status}`}>
+                            {field.status === 'verified' ? '✓' : field.status === 'mismatch' ? '✗' : '?'}
+                        </span>
+                    </motion.div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// Source Distribution Component
+const SourceDistribution = ({ sources }) => {
+    const sourceCounts = {};
+    sources.forEach(s => {
+        if (s) {
+            sourceCounts[s] = (sourceCounts[s] || 0) + 1;
+        }
+    });
+
+    const sourceEntries = Object.entries(sourceCounts);
+    const maxCount = Math.max(...Object.values(sourceCounts), 1);
+
+    return (
+        <div className="source-dist">
+            <h4 className="source-dist__title">Data Sources</h4>
+            <div className="source-dist__items">
+                {sourceEntries.map(([source, count], index) => (
+                    <motion.div
+                        key={source}
+                        className="source-item"
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: index * 0.1 }}
+                    >
+                        <div className="source-item__header">
+                            <span className="source-item__icon">
+                                {source.includes('NPI') ? '🏛️' : source.includes('Google') ? '🌐' : '📊'}
+                            </span>
+                            <span className="source-item__name">{source}</span>
+                        </div>
+                        <div className="source-item__bar">
+                            <motion.div
+                                className="source-item__fill"
+                                initial={{ width: 0 }}
+                                animate={{ width: `${(count / maxCount) * 100}%` }}
+                                transition={{ duration: 0.5, delay: 0.2 }}
+                            />
+                        </div>
+                        <span className="source-item__count">{count} fields</span>
+                    </motion.div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// Verification Timeline Component
+const VerificationTimeline = ({ timestamp, verificationId }) => {
+    const steps = [
+        { icon: '📥', label: 'Data Received', status: 'complete' },
+        { icon: '🔍', label: 'Validation Started', status: 'complete' },
+        { icon: '🌐', label: 'Sources Queried', status: 'complete' },
+        { icon: '✅', label: 'Analysis Complete', status: 'complete' },
+    ];
+
+    return (
+        <div className="timeline">
+            <h4 className="timeline__title">Verification Process</h4>
+            <div className="timeline__steps">
+                {steps.map((step, index) => (
+                    <motion.div
+                        key={index}
+                        className="timeline-step"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.15 }}
+                    >
+                        <div className="timeline-step__icon">{step.icon}</div>
+                        <div className="timeline-step__content">
+                            <span className="timeline-step__label">{step.label}</span>
+                            {index === steps.length - 1 && (
+                                <span className="timeline-step__time">
+                                    {new Date(timestamp).toLocaleTimeString()}
+                                </span>
+                            )}
+                        </div>
+                        {index < steps.length - 1 && <div className="timeline-step__line" />}
+                    </motion.div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
 const VerifyPage = () => {
-    const fileInputRef = useRef(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitResult, setSubmitResult] = useState(null);
-    const [uploadedFiles, setUploadedFiles] = useState([]);
 
     const [formData, setFormData] = useState({
-        // Identity fields (required)
         fullName: '',
         specialty: '',
-
-        // Verify details (optional)
         address: '',
         phoneNumber: '',
         licenseNumber: '',
@@ -78,13 +296,47 @@ const VerifyPage = () => {
 
     const [errors, setErrors] = useState({});
 
+    // Calculate stats from results
+    const resultStats = useMemo(() => {
+        if (!submitResult?.success || !submitResult?.data) return null;
+
+        const data = submitResult.data;
+        const fieldKeys = ['fullName', 'specialty', 'address', 'phoneNumber', 'licenseNumber', 'insuranceNetworks', 'servicesOffered'];
+
+        let verified = 0;
+        let unverified = 0;
+        let notFound = 0;
+        const fields = [];
+        const sources = [];
+
+        fieldKeys.forEach(key => {
+            const field = data[key];
+            if (field && field.input_field_a) {
+                if (field.matches) {
+                    verified++;
+                    fields.push({ name: key, ...FIELD_CONFIG[key], status: 'verified' });
+                } else if (field.scraped_data_field_a) {
+                    unverified++;
+                    fields.push({ name: key, ...FIELD_CONFIG[key], status: 'mismatch' });
+                } else {
+                    notFound++;
+                    fields.push({ name: key, ...FIELD_CONFIG[key], status: 'notfound' });
+                }
+                if (field.scraped_from) {
+                    sources.push(field.scraped_from);
+                }
+            }
+        });
+
+        const total = verified + unverified + notFound;
+        const confidence = total > 0 ? Math.round((verified / total) * 100) : 0;
+
+        return { verified, unverified, notFound, confidence, fields, sources, total };
+    }, [submitResult]);
+
     const handleInputChange = (e) => {
         const { name, value } = e.target;
-        setFormData(prev => ({
-            ...prev,
-            [name]: value
-        }));
-        // Clear error when user starts typing
+        setFormData(prev => ({ ...prev, [name]: value }));
         if (errors[name]) {
             setErrors(prev => ({ ...prev, [name]: '' }));
         }
@@ -99,43 +351,17 @@ const VerifyPage = () => {
         }));
     };
 
-    const handleFileUpload = (e) => {
-        const files = Array.from(e.target.files);
-        const validFiles = files.filter(file => {
-            const isValid = file.type === 'application/pdf' ||
-                file.type.startsWith('image/');
-            const isUnderLimit = file.size <= 10 * 1024 * 1024; // 10MB limit
-            return isValid && isUnderLimit;
-        });
-
-        setUploadedFiles(prev => [...prev, ...validFiles]);
-    };
-
-    const removeFile = (index) => {
-        setUploadedFiles(prev => prev.filter((_, i) => i !== index));
-    };
-
     const validateForm = () => {
         const newErrors = {};
-
-        if (!formData.fullName.trim()) {
-            newErrors.fullName = 'Full name is required';
-        }
-
-        if (!formData.specialty) {
-            newErrors.specialty = 'Specialty is required';
-        }
-
+        if (!formData.fullName.trim()) newErrors.fullName = 'Full name is required';
+        if (!formData.specialty) newErrors.specialty = 'Specialty is required';
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-
-        if (!validateForm()) {
-            return;
-        }
+        if (!validateForm()) return;
 
         setIsSubmitting(true);
         setSubmitResult(null);
@@ -143,44 +369,32 @@ const VerifyPage = () => {
         try {
             const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 
-            // Create FormData for file upload
-            const submitData = new FormData();
-            submitData.append('fullName', formData.fullName);
-            submitData.append('specialty', formData.specialty);
-            submitData.append('address', formData.address);
-            submitData.append('phoneNumber', formData.phoneNumber);
-            submitData.append('licenseNumber', formData.licenseNumber);
-            submitData.append('insuranceNetworks', JSON.stringify(formData.insuranceNetworks));
-            submitData.append('servicesOffered', formData.servicesOffered);
+            const payload = {
+                fullName: formData.fullName,
+                specialty: formData.specialty,
+                address: formData.address || null,
+                phoneNumber: formData.phoneNumber || null,
+                licenseNumber: formData.licenseNumber || null,
+                insuranceNetworks: formData.insuranceNetworks.length > 0 ? formData.insuranceNetworks : null,
+                servicesOffered: formData.servicesOffered || null,
+            };
 
-            // Append files
-            uploadedFiles.forEach((file, index) => {
-                submitData.append(`documents`, file);
-            });
-
-            const response = await fetch(`${backendUrl}/api/verify`, {
+            const response = await fetch(`${backendUrl}/api/doctor/verify`, {
                 method: 'POST',
-                body: submitData,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
             });
 
             const result = await response.json();
 
             if (response.ok) {
-                setSubmitResult({
-                    success: true,
-                    data: result
-                });
+                setSubmitResult({ success: true, data: result });
             } else {
-                setSubmitResult({
-                    success: false,
-                    error: result.message || 'Verification failed'
-                });
+                setSubmitResult({ success: false, error: result.message || result.detail || 'Verification failed' });
             }
         } catch (error) {
-            setSubmitResult({
-                success: false,
-                error: 'Unable to connect to the verification service. Please try again.'
-            });
+            console.error('Verification error:', error);
+            setSubmitResult({ success: false, error: 'Unable to connect to the verification service. Please try again.' });
         } finally {
             setIsSubmitting(false);
         }
@@ -196,9 +410,59 @@ const VerifyPage = () => {
             insuranceNetworks: [],
             servicesOffered: '',
         });
-        setUploadedFiles([]);
         setSubmitResult(null);
         setErrors({});
+    };
+
+    // Render verification result field
+    const renderResultField = (fieldName, fieldData) => {
+        if (!fieldData || !fieldData.input_field_a) return null;
+
+        const isMatch = fieldData.matches;
+        const config = FIELD_CONFIG[fieldName];
+        const inputValue = Array.isArray(fieldData.input_field_a)
+            ? fieldData.input_field_a.join(', ')
+            : fieldData.input_field_a;
+        const scrapedValue = fieldData.scraped_data_field_a
+            ? (Array.isArray(fieldData.scraped_data_field_a)
+                ? fieldData.scraped_data_field_a.join(', ')
+                : fieldData.scraped_data_field_a)
+            : 'Not found in database';
+
+        return (
+            <motion.div
+                key={fieldName}
+                className={`result-field ${isMatch ? 'result-field--match' : 'result-field--mismatch'}`}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.3 }}
+            >
+                <div className="result-field__header">
+                    <span className="result-field__icon">{config.icon}</span>
+                    <span className="result-field__label">{config.label}</span>
+                    <span className={`result-field__status ${isMatch ? 'result-field__status--match' : 'result-field__status--mismatch'}`}>
+                        {isMatch ? '✓ Verified' : '✗ Mismatch'}
+                    </span>
+                </div>
+                <div className="result-field__comparison">
+                    <div className="result-field__value result-field__value--input">
+                        <span className="result-field__value-label">Your Input</span>
+                        <span className="result-field__value-text">{inputValue || 'Not provided'}</span>
+                    </div>
+                    <div className="result-field__arrow">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M5 12h14M12 5l7 7-7 7" />
+                        </svg>
+                    </div>
+                    <div className="result-field__value result-field__value--scraped">
+                        <span className="result-field__value-label">
+                            {fieldData.scraped_from ? `From ${fieldData.scraped_from}` : 'Verified Data'}
+                        </span>
+                        <span className="result-field__value-text">{scrapedValue}</span>
+                    </div>
+                </div>
+            </motion.div>
+        );
     };
 
     return (
@@ -237,52 +501,173 @@ const VerifyPage = () => {
                 </motion.div>
 
                 <AnimatePresence mode="wait">
-                    {submitResult ? (
+                    {submitResult?.success ? (
                         <motion.div
                             key="result"
+                            className="verification-results"
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            transition={{ duration: 0.4 }}
+                        >
+                            {/* Results Window */}
+                            <div className="results-window">
+                                <div className="results-window__header">
+                                    <div className="results-window__dots">
+                                        <span></span><span></span><span></span>
+                                    </div>
+                                    <span>Provider Validation Results</span>
+                                    <span className="results-window__id">{submitResult.data.verification_id}</span>
+                                </div>
+
+                                <div className="results-window__content">
+                                    {/* Provider Summary */}
+                                    <div className="provider-summary">
+                                        <div className="provider-summary__avatar">👨‍⚕️</div>
+                                        <div className="provider-summary__info">
+                                            <h2 className="provider-summary__name">
+                                                {submitResult.data.fullName?.input_field_a || formData.fullName}
+                                            </h2>
+                                            <p className="provider-summary__specialty">
+                                                {submitResult.data.specialty?.input_field_a || formData.specialty}
+                                            </p>
+                                        </div>
+                                        <div className={`provider-summary__badge ${resultStats?.confidence >= 70 ? 'provider-summary__badge--verified' : 'provider-summary__badge--warning'}`}>
+                                            {resultStats?.confidence >= 70 ? '✓ Verified' : '⚠ Review Needed'}
+                                        </div>
+                                    </div>
+
+                                    {/* Dashboard Stats Grid */}
+                                    <div className="stats-dashboard">
+                                        {/* Donut Chart */}
+                                        <div className="stats-card stats-card--chart">
+                                            <DonutChart
+                                                verified={resultStats?.verified || 0}
+                                                unverified={resultStats?.unverified || 0}
+                                                notFound={resultStats?.notFound || 0}
+                                            />
+                                        </div>
+
+                                        {/* Quick Stats */}
+                                        <div className="stats-card stats-card--numbers">
+                                            <h4 className="stats-card__title">Verification Summary</h4>
+                                            <div className="stats-numbers">
+                                                <div className="stat-number stat-number--verified">
+                                                    <span className="stat-number__value">{resultStats?.verified || 0}</span>
+                                                    <span className="stat-number__label">Verified</span>
+                                                </div>
+                                                <div className="stat-number stat-number--mismatch">
+                                                    <span className="stat-number__value">{resultStats?.unverified || 0}</span>
+                                                    <span className="stat-number__label">Mismatched</span>
+                                                </div>
+                                                <div className="stat-number stat-number--notfound">
+                                                    <span className="stat-number__value">{resultStats?.notFound || 0}</span>
+                                                    <span className="stat-number__label">Not Found</span>
+                                                </div>
+                                                <div className="stat-number stat-number--total">
+                                                    <span className="stat-number__value">{resultStats?.total || 0}</span>
+                                                    <span className="stat-number__label">Total Fields</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Field Confidence Chart */}
+                                    <div className="chart-section">
+                                        {resultStats?.fields && <FieldConfidenceChart fields={resultStats.fields} />}
+                                    </div>
+
+                                    {/* Source Distribution & Timeline */}
+                                    <div className="insights-grid">
+                                        {resultStats?.sources?.length > 0 && (
+                                            <SourceDistribution sources={resultStats.sources} />
+                                        )}
+                                        <VerificationTimeline
+                                            timestamp={submitResult.data.timestamp}
+                                            verificationId={submitResult.data.verification_id}
+                                        />
+                                    </div>
+
+                                    {/* Detailed Results */}
+                                    <div className="results-grid">
+                                        <h3 className="results-grid__title">
+                                            <span className="results-grid__title-icon">📋</span>
+                                            Detailed Field Comparison
+                                        </h3>
+                                        <div className="results-grid__fields">
+                                            {renderResultField('fullName', submitResult.data.fullName)}
+                                            {renderResultField('specialty', submitResult.data.specialty)}
+                                            {renderResultField('address', submitResult.data.address)}
+                                            {renderResultField('phoneNumber', submitResult.data.phoneNumber)}
+                                            {renderResultField('licenseNumber', submitResult.data.licenseNumber)}
+                                            {renderResultField('insuranceNetworks', submitResult.data.insuranceNetworks)}
+                                            {renderResultField('servicesOffered', submitResult.data.servicesOffered)}
+                                        </div>
+                                    </div>
+
+                                    {/* Confidence Meter */}
+                                    <div className="confidence-section">
+                                        <div className="confidence-header">
+                                            <span className="confidence-label">Overall Confidence Score</span>
+                                            <span className={`confidence-value ${resultStats?.confidence >= 70 ? 'confidence-value--high' : resultStats?.confidence >= 40 ? 'confidence-value--medium' : 'confidence-value--low'}`}>
+                                                {resultStats?.confidence || 0}%
+                                            </span>
+                                        </div>
+                                        <div className="confidence-bar">
+                                            <motion.div
+                                                className={`confidence-fill ${resultStats?.confidence >= 70 ? 'confidence-fill--high' : resultStats?.confidence >= 40 ? 'confidence-fill--medium' : 'confidence-fill--low'}`}
+                                                initial={{ width: 0 }}
+                                                animate={{ width: `${resultStats?.confidence || 0}%` }}
+                                                transition={{ duration: 1, delay: 0.3, ease: 'easeOut' }}
+                                            />
+                                            <div className="confidence-markers">
+                                                <span className="confidence-marker" style={{ left: '33%' }}>Low</span>
+                                                <span className="confidence-marker" style={{ left: '66%' }}>Medium</span>
+                                                <span className="confidence-marker" style={{ left: '100%' }}>High</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Timestamp */}
+                                    <div className="results-timestamp">
+                                        <span className="results-timestamp__icon">🕐</span>
+                                        Verified on {new Date(submitResult.data.timestamp).toLocaleString()}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="results-actions">
+                                <button onClick={resetForm} className="btn btn--primary btn--lg">
+                                    <span>🔄</span> Verify Another Provider
+                                </button>
+                                <Link to="/" className="btn btn--ghost btn--lg">
+                                    <span>🏠</span> Back to Home
+                                </Link>
+                            </div>
+                        </motion.div>
+                    ) : submitResult?.success === false ? (
+                        <motion.div
+                            key="error"
                             className="verify-page__result"
                             initial={{ opacity: 0, scale: 0.95 }}
                             animate={{ opacity: 1, scale: 1 }}
                             exit={{ opacity: 0, scale: 0.95 }}
                             transition={{ duration: 0.3 }}
                         >
-                            {submitResult.success ? (
-                                <div className="result-card result-card--success">
-                                    <div className="result-card__icon">✓</div>
-                                    <h2>Verification Complete</h2>
-                                    <p>The provider information has been verified successfully.</p>
-
-                                    {submitResult.data && (
-                                        <div className="result-card__data">
-                                            <pre>{JSON.stringify(submitResult.data, null, 2)}</pre>
-                                        </div>
-                                    )}
-
-                                    <div className="result-card__actions">
-                                        <button onClick={resetForm} className="btn btn--primary">
-                                            Verify Another Provider
-                                        </button>
-                                        <Link to="/" className="btn btn--ghost">
-                                            Back to Home
-                                        </Link>
-                                    </div>
+                            <div className="result-card result-card--error">
+                                <div className="result-card__icon">!</div>
+                                <h2>Verification Failed</h2>
+                                <p>{submitResult.error}</p>
+                                <div className="result-card__actions">
+                                    <button onClick={() => setSubmitResult(null)} className="btn btn--primary">
+                                        Try Again
+                                    </button>
+                                    <Link to="/" className="btn btn--ghost">
+                                        Back to Home
+                                    </Link>
                                 </div>
-                            ) : (
-                                <div className="result-card result-card--error">
-                                    <div className="result-card__icon">!</div>
-                                    <h2>Verification Failed</h2>
-                                    <p>{submitResult.error}</p>
-
-                                    <div className="result-card__actions">
-                                        <button onClick={() => setSubmitResult(null)} className="btn btn--primary">
-                                            Try Again
-                                        </button>
-                                        <Link to="/" className="btn btn--ghost">
-                                            Back to Home
-                                        </Link>
-                                    </div>
-                                </div>
-                            )}
+                            </div>
                         </motion.div>
                     ) : (
                         <motion.form
@@ -314,7 +699,7 @@ const VerifyPage = () => {
                                             id="fullName"
                                             name="fullName"
                                             className={`form-input ${errors.fullName ? 'form-input--error' : ''}`}
-                                            placeholder="Dr. John Smith, MD"
+                                            placeholder="Dr. Sarah Johnson, MD"
                                             value={formData.fullName}
                                             onChange={handleInputChange}
                                         />
@@ -418,65 +803,11 @@ const VerifyPage = () => {
                                             id="servicesOffered"
                                             name="servicesOffered"
                                             className="form-textarea"
-                                            placeholder="List the clinical services, procedures, or specializations offered by this provider..."
+                                            placeholder="List the clinical services, procedures, or specializations..."
                                             rows={3}
                                             value={formData.servicesOffered}
                                             onChange={handleInputChange}
                                         />
-                                    </div>
-
-                                    {/* File Upload */}
-                                    <div className="form-group form-group--full">
-                                        <label className="form-label">Upload Documents</label>
-                                        <p className="form-hint">Upload PDFs or images for additional verification (licenses, certifications, etc.)</p>
-
-                                        <div
-                                            className="file-upload"
-                                            onClick={() => fileInputRef.current?.click()}
-                                        >
-                                            <input
-                                                ref={fileInputRef}
-                                                type="file"
-                                                multiple
-                                                accept=".pdf,image/*"
-                                                onChange={handleFileUpload}
-                                                className="file-upload__input"
-                                            />
-                                            <div className="file-upload__icon">
-                                                <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                                    <path d="M40 30V38C40 39.0609 39.5786 40.0783 38.8284 40.8284C38.0783 41.5786 37.0609 42 36 42H12C10.9391 42 9.92172 41.5786 9.17157 40.8284C8.42143 40.0783 8 39.0609 8 38V30" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                                                    <path d="M32 16L24 8L16 16" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                                                    <path d="M24 8V30" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                                                </svg>
-                                            </div>
-                                            <p className="file-upload__text">
-                                                <span>Click to upload</span> or drag and drop
-                                            </p>
-                                            <p className="file-upload__hint">PDF, PNG, JPG up to 10MB each</p>
-                                        </div>
-
-                                        {uploadedFiles.length > 0 && (
-                                            <div className="uploaded-files">
-                                                {uploadedFiles.map((file, index) => (
-                                                    <div key={index} className="uploaded-file">
-                                                        <span className="uploaded-file__icon">
-                                                            {file.type === 'application/pdf' ? '📄' : '🖼️'}
-                                                        </span>
-                                                        <span className="uploaded-file__name">{file.name}</span>
-                                                        <span className="uploaded-file__size">
-                                                            {(file.size / 1024).toFixed(1)} KB
-                                                        </span>
-                                                        <button
-                                                            type="button"
-                                                            className="uploaded-file__remove"
-                                                            onClick={() => removeFile(index)}
-                                                        >
-                                                            ×
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
                             </div>

@@ -595,7 +595,7 @@ class DoctorVerificationRequest(BaseModel):
     address: Optional[str] = Field(None, max_length=200, description="Practice address")
     phoneNumber: Optional[str] = Field(None, description="Phone number")
     licenseNumber: Optional[str] = Field(None, max_length=50, description="Medical license number")
-    insuranceNetworks: List[str] = Field(default_factory=list, description="Affiliated insurance networks")
+    insuranceNetworks: Optional[List[str]] = Field(default=None, description="Affiliated insurance networks")
     servicesOffered: Optional[str] = Field(None, max_length=500, description="Services offered")
 
     @validator('phoneNumber')

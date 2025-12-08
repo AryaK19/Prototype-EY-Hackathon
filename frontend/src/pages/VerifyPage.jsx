@@ -69,19 +69,21 @@ const FIELD_CONFIG = {
 };
 
 // Donut Chart Component
-const DonutChart = ({ verified, unverified, notFound }) => {
-    const total = verified + unverified + notFound;
+const DonutChart = ({ verified, unverified, notFound, missingDataFound }) => {
+    const total = verified + unverified + notFound + (missingDataFound || 0);
     if (total === 0) return null;
 
     const verifiedPercent = (verified / total) * 100;
     const unverifiedPercent = (unverified / total) * 100;
     const notFoundPercent = (notFound / total) * 100;
+    const missingDataPercent = ((missingDataFound || 0) / total) * 100;
 
     // Calculate stroke-dasharray for each segment
     const circumference = 2 * Math.PI * 45; // radius = 45
     const verifiedDash = (verifiedPercent / 100) * circumference;
     const unverifiedDash = (unverifiedPercent / 100) * circumference;
     const notFoundDash = (notFoundPercent / 100) * circumference;
+    const missingDataDash = (missingDataPercent / 100) * circumference;
 
     return (
         <div className="donut-chart">
@@ -94,8 +96,7 @@ const DonutChart = ({ verified, unverified, notFound }) => {
                     fill="none"
                     stroke="rgba(255,255,255,0.1)"
                     strokeWidth="12"
-                />
-                {/* Not found segment */}
+                />                {/* Not found segment */}
                 <circle
                     cx="60"
                     cy="60"
@@ -108,6 +109,19 @@ const DonutChart = ({ verified, unverified, notFound }) => {
                     transform="rotate(-90 60 60)"
                     className="donut-segment"
                 />
+                {/* Missing data found segment */}
+                <circle
+                    cx="60"
+                    cy="60"
+                    r="45"
+                    fill="none"
+                    stroke="var(--warning-400)"
+                    strokeWidth="12"
+                    strokeDasharray={`${missingDataDash} ${circumference}`}
+                    strokeDashoffset={-notFoundDash}
+                    transform="rotate(-90 60 60)"
+                    className="donut-segment"
+                />
                 {/* Unverified segment */}
                 <circle
                     cx="60"
@@ -117,7 +131,7 @@ const DonutChart = ({ verified, unverified, notFound }) => {
                     stroke="var(--error-400)"
                     strokeWidth="12"
                     strokeDasharray={`${unverifiedDash} ${circumference}`}
-                    strokeDashoffset={-notFoundDash}
+                    strokeDashoffset={-(notFoundDash + missingDataDash)}
                     transform="rotate(-90 60 60)"
                     className="donut-segment"
                 />
@@ -130,7 +144,7 @@ const DonutChart = ({ verified, unverified, notFound }) => {
                     stroke="var(--success-400)"
                     strokeWidth="12"
                     strokeDasharray={`${verifiedDash} ${circumference}`}
-                    strokeDashoffset={-(notFoundDash + unverifiedDash)}
+                    strokeDashoffset={-(notFoundDash + missingDataDash + unverifiedDash)}
                     transform="rotate(-90 60 60)"
                     className="donut-segment"
                 />
@@ -141,8 +155,7 @@ const DonutChart = ({ verified, unverified, notFound }) => {
                 <text x="60" y="72" textAnchor="middle" className="donut-chart__label">
                     Verified
                 </text>
-            </svg>
-            <div className="donut-chart__legend">
+            </svg>            <div className="donut-chart__legend">
                 <div className="donut-legend__item">
                     <span className="donut-legend__dot donut-legend__dot--verified"></span>
                     <span>Verified ({verified})</span>
@@ -151,6 +164,12 @@ const DonutChart = ({ verified, unverified, notFound }) => {
                     <span className="donut-legend__dot donut-legend__dot--unverified"></span>
                     <span>Mismatch ({unverified})</span>
                 </div>
+                {missingDataFound > 0 && (
+                    <div className="donut-legend__item">
+                        <span className="donut-legend__dot donut-legend__dot--missing-data"></span>
+                        <span>Missing Data Found ({missingDataFound})</span>
+                    </div>
+                )}
                 <div className="donut-legend__item">
                     <span className="donut-legend__dot donut-legend__dot--notfound"></span>
                     <span>Not Found ({notFound})</span>
@@ -177,17 +196,22 @@ const FieldConfidenceChart = ({ fields }) => {
                         <div className="field-bar__info">
                             <span className="field-bar__icon">{field.icon}</span>
                             <span className="field-bar__name">{field.label}</span>
-                        </div>
-                        <div className="field-bar__track">
+                        </div>                        <div className="field-bar__track">
                             <motion.div
                                 className={`field-bar__fill field-bar__fill--${field.status}`}
                                 initial={{ width: 0 }}
-                                animate={{ width: field.status === 'verified' ? '100%' : field.status === 'mismatch' ? '100%' : '30%' }}
+                                animate={{ 
+                                    width: field.status === 'verified' ? '100%' : 
+                                           field.status === 'mismatch' ? '100%' : 
+                                           field.status === 'missing-data-found' ? '75%' : '30%' 
+                                }}
                                 transition={{ duration: 0.6, delay: 0.3 + index * 0.1 }}
                             />
                         </div>
                         <span className={`field-bar__status field-bar__status--${field.status}`}>
-                            {field.status === 'verified' ? '✓' : field.status === 'mismatch' ? '✗' : '?'}
+                            {field.status === 'verified' ? '✓' : 
+                             field.status === 'mismatch' ? '✗' : 
+                             field.status === 'missing-data-found' ? '📋' : '?'}
                         </span>
                     </motion.div>
                 ))}
@@ -294,9 +318,7 @@ const VerifyPage = () => {
         servicesOffered: '',
     });
 
-    const [errors, setErrors] = useState({});
-
-    // Calculate stats from results
+    const [errors, setErrors] = useState({});    // Calculate stats from results
     const resultStats = useMemo(() => {
         if (!submitResult?.success || !submitResult?.data) return null;
 
@@ -306,32 +328,44 @@ const VerifyPage = () => {
         let verified = 0;
         let unverified = 0;
         let notFound = 0;
+        let missingDataFound = 0;
         const fields = [];
         const sources = [];
 
         fieldKeys.forEach(key => {
             const field = data[key];
-            if (field && field.input_field_a) {
-                if (field.matches) {
+            if (field) {
+                // Case 1: Verified - input provided + matches = true
+                if (field.input_field_a && field.matches === true) {
                     verified++;
                     fields.push({ name: key, ...FIELD_CONFIG[key], status: 'verified' });
-                } else if (field.scraped_data_field_a) {
+                }
+                // Case 2: Unverified/Mismatch - input provided + matches = false
+                else if (field.input_field_a && field.matches === false) {
                     unverified++;
                     fields.push({ name: key, ...FIELD_CONFIG[key], status: 'mismatch' });
-                } else {
+                }
+                // Case 3: Missing Data Found - input = null + matches = null + scraped_data available
+                else if (!field.input_field_a && field.matches === null && field.scraped_data_field_a) {
+                    missingDataFound++;
+                    fields.push({ name: key, ...FIELD_CONFIG[key], status: 'missing-data-found' });
+                }
+                // Case 4: Not Found - no scraped data available
+                else if (!field.scraped_data_field_a) {
                     notFound++;
                     fields.push({ name: key, ...FIELD_CONFIG[key], status: 'notfound' });
                 }
+                
                 if (field.scraped_from) {
                     sources.push(field.scraped_from);
                 }
             }
         });
 
-        const total = verified + unverified + notFound;
+        const total = verified + unverified + notFound + missingDataFound;
         const confidence = total > 0 ? Math.round((verified / total) * 100) : 0;
 
-        return { verified, unverified, notFound, confidence, fields, sources, total };
+        return { verified, unverified, notFound, missingDataFound, confidence, fields, sources, total };
     }, [submitResult]);
 
     const handleInputChange = (e) => {
@@ -412,17 +446,40 @@ const VerifyPage = () => {
         });
         setSubmitResult(null);
         setErrors({});
-    };
-
-    // Render verification result field
+    };    // Render verification result field
     const renderResultField = (fieldName, fieldData) => {
-        if (!fieldData || !fieldData.input_field_a) return null;
+        if (!fieldData) return null;
 
-        const isMatch = fieldData.matches;
         const config = FIELD_CONFIG[fieldName];
-        const inputValue = Array.isArray(fieldData.input_field_a)
-            ? fieldData.input_field_a.join(', ')
-            : fieldData.input_field_a;
+        let status, statusText, statusIcon;
+        
+        // Determine verification state
+        if (fieldData.input_field_a && fieldData.matches === true) {
+            // Case 1: Verified - input provided + matches = true
+            status = 'match';
+            statusText = '✓ Verified';
+            statusIcon = '✓';
+        } else if (fieldData.input_field_a && fieldData.matches === false) {
+            // Case 2: Unverified/Mismatch - input provided + matches = false
+            status = 'mismatch';
+            statusText = '✗ Mismatch';
+            statusIcon = '✗';
+        } else if (!fieldData.input_field_a && fieldData.matches === null && fieldData.scraped_data_field_a) {
+            // Case 3: Missing Data Found - input = null + matches = null + scraped_data available
+            status = 'missing-data';
+            statusText = '📋 Data Found';
+            statusIcon = '📋';
+        } else {
+            // Don't render fields with no relevant data
+            return null;
+        }
+
+        const inputValue = fieldData.input_field_a 
+            ? (Array.isArray(fieldData.input_field_a)
+                ? fieldData.input_field_a.join(', ')
+                : fieldData.input_field_a)
+            : null;
+
         const scrapedValue = fieldData.scraped_data_field_a
             ? (Array.isArray(fieldData.scraped_data_field_a)
                 ? fieldData.scraped_data_field_a.join(', ')
@@ -432,7 +489,7 @@ const VerifyPage = () => {
         return (
             <motion.div
                 key={fieldName}
-                className={`result-field ${isMatch ? 'result-field--match' : 'result-field--mismatch'}`}
+                className={`result-field result-field--${status}`}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.3 }}
@@ -440,14 +497,16 @@ const VerifyPage = () => {
                 <div className="result-field__header">
                     <span className="result-field__icon">{config.icon}</span>
                     <span className="result-field__label">{config.label}</span>
-                    <span className={`result-field__status ${isMatch ? 'result-field__status--match' : 'result-field__status--mismatch'}`}>
-                        {isMatch ? '✓ Verified' : '✗ Mismatch'}
+                    <span className={`result-field__status result-field__status--${status}`}>
+                        {statusText}
                     </span>
                 </div>
                 <div className="result-field__comparison">
                     <div className="result-field__value result-field__value--input">
                         <span className="result-field__value-label">Your Input</span>
-                        <span className="result-field__value-text">{inputValue || 'Not provided'}</span>
+                        <span className="result-field__value-text">
+                            {inputValue || (status === 'missing-data' ? 'Not provided' : 'Not provided')}
+                        </span>
                     </div>
                     <div className="result-field__arrow">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -461,6 +520,14 @@ const VerifyPage = () => {
                         <span className="result-field__value-text">{scrapedValue}</span>
                     </div>
                 </div>
+                {status === 'missing-data' && (
+                    <div className="result-field__note">
+                        <span className="result-field__note-icon">💡</span>
+                        <span className="result-field__note-text">
+                            This information was not provided but was found in our verification sources.
+                        </span>
+                    </div>
+                )}
             </motion.div>
         );
     };
@@ -538,20 +605,19 @@ const VerifyPage = () => {
                                     </div>
 
                                     {/* Dashboard Stats Grid */}
-                                    <div className="stats-dashboard">
-                                        {/* Donut Chart */}
+                                    <div className="stats-dashboard">                                        {/* Donut Chart */}
                                         <div className="stats-card stats-card--chart">
                                             <DonutChart
                                                 verified={resultStats?.verified || 0}
                                                 unverified={resultStats?.unverified || 0}
                                                 notFound={resultStats?.notFound || 0}
+                                                missingDataFound={resultStats?.missingDataFound || 0}
                                             />
                                         </div>
 
                                         {/* Quick Stats */}
                                         <div className="stats-card stats-card--numbers">
-                                            <h4 className="stats-card__title">Verification Summary</h4>
-                                            <div className="stats-numbers">
+                                            <h4 className="stats-card__title">Verification Summary</h4>                                            <div className="stats-numbers">
                                                 <div className="stat-number stat-number--verified">
                                                     <span className="stat-number__value">{resultStats?.verified || 0}</span>
                                                     <span className="stat-number__label">Verified</span>
@@ -560,6 +626,12 @@ const VerifyPage = () => {
                                                     <span className="stat-number__value">{resultStats?.unverified || 0}</span>
                                                     <span className="stat-number__label">Mismatched</span>
                                                 </div>
+                                                {(resultStats?.missingDataFound || 0) > 0 && (
+                                                    <div className="stat-number stat-number--missing-data">
+                                                        <span className="stat-number__value">{resultStats?.missingDataFound || 0}</span>
+                                                        <span className="stat-number__label">Data Found</span>
+                                                    </div>
+                                                )}
                                                 <div className="stat-number stat-number--notfound">
                                                     <span className="stat-number__value">{resultStats?.notFound || 0}</span>
                                                     <span className="stat-number__label">Not Found</span>

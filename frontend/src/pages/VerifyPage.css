@@ -493,6 +493,10 @@
     background: var(--error-400);
 }
 
+.donut-legend__dot--missing-data {
+    background: var(--warning-400);
+}
+
 .donut-legend__dot--notfound {
     background: var(--neutral-500);
 }
@@ -527,6 +531,10 @@
 
 .stat-number--mismatch .stat-number__value {
     color: var(--error-400);
+}
+
+.stat-number--missing-data .stat-number__value {
+    color: var(--warning-400);
 }
 
 .stat-number--notfound .stat-number__value {
@@ -617,6 +625,10 @@
     background: linear-gradient(90deg, var(--error-400), #ff7875);
 }
 
+.field-bar__fill--missing-data-found {
+    background: linear-gradient(90deg, var(--warning-400), #ffd666);
+}
+
 .field-bar__fill--notfound {
     background: linear-gradient(90deg, var(--neutral-600), var(--neutral-500));
 }
@@ -640,6 +652,11 @@
 .field-bar__status--mismatch {
     background: rgba(255, 77, 79, 0.15);
     color: var(--error-400);
+}
+
+.field-bar__status--missing-data-found {
+    background: rgba(250, 173, 20, 0.15);
+    color: var(--warning-400);
 }
 
 .field-bar__status--notfound {
@@ -846,6 +863,11 @@
     border-color: rgba(255, 77, 79, 0.2);
 }
 
+.result-field--missing-data {
+    background: rgba(250, 173, 20, 0.05);
+    border-color: rgba(250, 173, 20, 0.2);
+}
+
 .result-field__header {
     display: flex;
     align-items: center;
@@ -879,6 +901,11 @@
 .result-field__status--mismatch {
     background: rgba(255, 77, 79, 0.15);
     color: var(--error-400);
+}
+
+.result-field__status--missing-data {
+    background: rgba(250, 173, 20, 0.15);
+    color: var(--warning-400);
 }
 
 .result-field__comparison {
@@ -927,6 +954,28 @@
 .result-field__arrow svg {
     width: 20px;
     height: 20px;
+}
+
+.result-field__note {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-sm);
+    margin-top: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+    background: rgba(250, 173, 20, 0.1);
+    border: 1px solid rgba(250, 173, 20, 0.2);
+    border-radius: var(--radius-md);
+}
+
+.result-field__note-icon {
+    font-size: 0.9rem;
+    margin-top: 2px;
+}
+
+.result-field__note-text {
+    font-size: 0.85rem;
+    color: var(--warning-300);
+    line-height: 1.4;
 }
 
 /* ========================================

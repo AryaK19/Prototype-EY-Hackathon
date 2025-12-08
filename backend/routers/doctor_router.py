@@ -744,6 +744,32 @@ async def get_insurance_networks():
     """Get list of available insurance networks"""
     return {"networks": INSURANCE_NETWORKS}
 
+def validate_pdf_content(provider_info: Dict[str, str]) -> List[str]:
+    """Validate extracted PDF content and return list of validation errors"""
+    errors = []
+    
+    # Check if we have minimum required information
+    if not provider_info.get("fullName") or len(provider_info.get("fullName", "").strip()) < 3:
+        errors.append("No valid doctor name found in PDF")
+    
+    if not provider_info.get("specialty") or len(provider_info.get("specialty", "").strip()) < 2:
+        errors.append("No valid medical specialty found in PDF")
+    
+    # Check if name looks like a real name (at least first and last name)
+    full_name = provider_info.get("fullName", "")
+    if full_name and len(full_name.strip().split()) < 2:
+        errors.append("Doctor name must include both first and last name")
+    
+    # Check if specialty matches our known specialties
+    specialty = provider_info.get("specialty", "")
+    if specialty:
+        specialty_valid = any(known_spec.lower() in specialty.lower() or specialty.lower() in known_spec.lower() 
+                            for known_spec in SPECIALTIES)
+        if not specialty_valid:
+            errors.append(f"Specialty '{specialty}' is not recognized as a valid medical specialty")
+    
+    return errors
+
 @router.post("/extract-pdf")
 async def extract_provider_from_pdf(file: UploadFile = File(...)):
     """Extract provider information from uploaded PDF and perform verification"""
@@ -763,6 +789,19 @@ async def extract_provider_from_pdf(file: UploadFile = File(...)):
         
         # Parse provider information
         provider_info = parse_provider_info(extracted_text)
+        
+        # Validate that we extracted meaningful information
+        validation_errors = validate_pdf_content(provider_info)
+        if validation_errors:
+            raise HTTPException(
+                status_code=400, 
+                detail={
+                    "error": "PDF validation failed",
+                    "message": "The uploaded PDF does not contain valid doctor information",
+                    "details": validation_errors,
+                    "extracted_info": provider_info
+                }
+            )
         
         # Create verification request from extracted data
         verification_request = DoctorVerificationRequest(
@@ -829,25 +868,56 @@ async def extract_text_from_pdf(file_content: bytes) -> str:
     full_text = ""
     
     try:
+        # Validate file size first
+        if len(file_content) == 0:
+            raise HTTPException(status_code=400, detail="PDF file is empty")
+        
         # Try with pdfplumber first (better for complex layouts)
         with pdfplumber.open(BytesIO(file_content)) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    full_text += page_text + "\n"
+            if len(pdf.pages) == 0:
+                raise HTTPException(status_code=400, detail="PDF contains no pages")
+                
+            for page_num, page in enumerate(pdf.pages):
+                try:
+                    page_text = page.extract_text()
+                    if page_text and page_text.strip():
+                        full_text += page_text + "\n"
+                except Exception as e:
+                    logger.warning(f"Failed to extract text from page {page_num + 1}: {e}")
+                    continue
+                    
+    except HTTPException:
+        raise
     except Exception as e:
         logger.warning(f"pdfplumber failed: {e}, trying PyPDF2")
         
         # Fallback to PyPDF2
         try:
             pdf_reader = PyPDF2.PdfReader(BytesIO(file_content))
-            for page in pdf_reader.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    full_text += page_text + "\n"
+            
+            if len(pdf_reader.pages) == 0:
+                raise HTTPException(status_code=400, detail="PDF contains no pages")
+                
+            for page_num, page in enumerate(pdf_reader.pages):
+                try:
+                    page_text = page.extract_text()
+                    if page_text and page_text.strip():
+                        full_text += page_text + "\n"
+                except Exception as e:
+                    logger.warning(f"Failed to extract text from page {page_num + 1}: {e}")
+                    continue
+                    
+        except HTTPException:
+            raise
         except Exception as e2:
-            logger.error(f"PyPDF2 also failed: {e2}")
-            raise HTTPException(status_code=500, detail="Could not extract text from PDF")
+            logger.error(f"Both pdfplumber and PyPDF2 failed: {e2}")
+            raise HTTPException(
+                status_code=500, 
+                detail={
+                    "error": "PDF processing failed",
+                    "message": "Could not extract text from PDF. The PDF may be corrupted, password-protected, or contain only images."
+                }
+            )
     
     return full_text.strip()
 

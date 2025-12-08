@@ -312,6 +312,7 @@ const VerifyPage = () => {
     const [pdfText, setPdfText] = useState('');
     const [isProcessingPdf, setIsProcessingPdf] = useState(false);
     const [pdfVerificationResult, setPdfVerificationResult] = useState(null);
+    const [notification, setNotification] = useState(null);
     const fileInputRef = useRef(null);
 
     const [formData, setFormData] = useState({
@@ -324,7 +325,15 @@ const VerifyPage = () => {
         servicesOffered: '',
     });
 
-    const [errors, setErrors] = useState({});    // Calculate stats from results
+    const [errors, setErrors] = useState({});
+
+    // Notification function
+    const showNotification = useCallback((message, type = 'error') => {
+        setNotification({ message, type });
+        setTimeout(() => setNotification(null), 5000);
+    }, []);
+
+    // Calculate stats from results
     const resultStats = useMemo(() => {
         if (!submitResult?.success || !submitResult?.data) return null;
 
@@ -389,7 +398,36 @@ const VerifyPage = () => {
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.detail || 'Failed to process PDF');
+                
+                // Handle structured error responses
+                if (errorData.detail && typeof errorData.detail === 'object') {
+                    const { error, message, details, extracted_info } = errorData.detail;
+                    
+                    // Create short, professional error messages
+                    let shortMessage = '';
+                    if (error === 'PDF validation failed') {
+                        shortMessage = 'Unable to extract valid doctor information from PDF';
+                    } else if (error === 'Empty PDF') {
+                        shortMessage = 'PDF contains no readable text';
+                    } else if (error === 'Insufficient content') {
+                        shortMessage = 'PDF has insufficient information for processing';
+                    } else {
+                        shortMessage = 'PDF processing failed';
+                    }
+                    
+                    // Show extracted info if available
+                    if (extracted_info) {
+                        setPdfVerificationResult({
+                            success: false,
+                            extractedInfo: extracted_info,
+                            error: shortMessage
+                        });
+                    }
+                    
+                    throw new Error(shortMessage);
+                } else {
+                    throw new Error(errorData.detail || 'Failed to process PDF');
+                }
             }
 
             const result = await response.json();
@@ -422,20 +460,25 @@ const VerifyPage = () => {
 
     const handlePdfUpload = useCallback(async (file) => {
         try {
+            // Clear previous results before processing new file
+            setPdfFile(null);
+            setPdfText('');
+            setPdfVerificationResult(null);
+            
             setPdfFile(file);
             await processPDFForVerification(file);
         } catch (error) {
             console.error('Error processing PDF:', error);
-            alert('Error processing PDF: ' + error.message);
+            showNotification('Error processing PDF: ' + error.message);
         }
-    }, [processPDFForVerification]);
+    }, [processPDFForVerification, showNotification]);
 
     const handleFileSelect = useCallback((event) => {
         const file = event.target.files[0];
         if (file && file.type === 'application/pdf') {
             handlePdfUpload(file);
         } else {
-            alert('Please select a valid PDF file');
+            showNotification('Please select a valid PDF file', 'warning');
         }
     }, [handlePdfUpload]);
 
@@ -614,6 +657,32 @@ const VerifyPage = () => {
 
     return (
         <div className="verify-page">
+            {/* Notification Popup */}
+            {notification && (
+                <motion.div
+                    className={`notification notification--${notification.type}`}
+                    initial={{ opacity: 0, y: -50, scale: 0.9 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -50, scale: 0.9 }}
+                    transition={{ duration: 0.3 }}
+                >
+                    <div className="notification__icon">
+                        {notification.type === 'error' ? '❌' : 
+                         notification.type === 'warning' ? '⚠️' : 
+                         notification.type === 'success' ? '✅' : 'ℹ️'}
+                    </div>
+                    <div className="notification__content">
+                        <p className="notification__message">{notification.message}</p>
+                    </div>
+                    <button
+                        className="notification__close"
+                        onClick={() => setNotification(null)}
+                    >
+                        ×
+                    </button>
+                </motion.div>
+            )}
+            
             <div className="verify-page__background">
                 <div className="verify-page__glow verify-page__glow--1" />
                 <div className="verify-page__glow verify-page__glow--2" />
@@ -1080,77 +1149,56 @@ const VerifyPage = () => {
                                                 </div>
                                             </div>
 
-                                            {/* PDF Verification Results */}
-                                            {pdfVerificationResult && (
+                                            {/* PDF Verification Results - Only show container if successful */}
+                                            {pdfVerificationResult && pdfVerificationResult.success && (
                                                 <motion.div
                                                     className="pdf-verification-results"
                                                     initial={{ opacity: 0, y: 20 }}
                                                     animate={{ opacity: 1, y: 0 }}
                                                     transition={{ duration: 0.4 }}
                                                 >
-                                                    {pdfVerificationResult.success ? (
-                                                        <div className="pdf-verification-success">
-                                                            <h3 className="pdf-verification-title">
-                                                                <span className="pdf-verification-icon">✅</span>
-                                                                PDF Verification Complete
-                                                            </h3>
-                                                            
-                                                            <div className="pdf-verification-summary">
-                                                                <p>Provider information was extracted and verified against our database.</p>
-                                                                <button
-                                                                    onClick={() => setSubmitResult(pdfVerificationResult)}
-                                                                    className="btn btn--primary btn--lg"
-                                                                >
-                                                                    <span>📊</span>
-                                                                    View Detailed Results
-                                                                </button>
-                                                            </div>
+                                                    <div className="pdf-verification-success">
+                                                        <h3 className="pdf-verification-title">
+                                                            <span className="pdf-verification-icon">✅</span>
+                                                            PDF Verification Complete
+                                                        </h3>
+                                                        
+                                                        <div className="pdf-verification-summary">
+                                                            <p>Provider information was extracted and verified against our database.</p>
+                                                            <button
+                                                                onClick={() => setSubmitResult(pdfVerificationResult)}
+                                                                className="btn btn--primary btn--lg"
+                                                            >
+                                                                <span>📊</span>
+                                                                View Detailed Results
+                                                            </button>
                                                         </div>
-                                                    ) : (
-                                                        <div className="pdf-verification-partial">
-                                                            <h3 className="pdf-verification-title">
-                                                                <span className="pdf-verification-icon">⚠️</span>
-                                                                Partial Information Extracted
-                                                            </h3>
-                                                            
-                                                            <p className="pdf-verification-message">
-                                                                {pdfVerificationResult.error}
-                                                            </p>
-                                                            
-                                                            {pdfVerificationResult.extractedInfo && (
-                                                                <div className="extracted-info-preview">
-                                                                    <h4>Extracted Information:</h4>
-                                                                    <div className="extracted-fields-grid">
-                                                                        {Object.entries(pdfVerificationResult.extractedInfo).map(([key, value]) => (
-                                                                            value && (
-                                                                                <div key={key} className="extracted-field-item">
-                                                                                    <span className="field-label">
-                                                                                        {FIELD_CONFIG[key]?.icon} {FIELD_CONFIG[key]?.label || key}:
-                                                                                    </span>
-                                                                                    <span className="field-value">{value}</span>
-                                                                                </div>
-                                                                            )
-                                                                        ))}
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                            
-                                                            <div className="pdf-verification-actions">
-                                                                <button
-                                                                    onClick={resetPdfUpload}
-                                                                    className="btn btn--ghost"
-                                                                >
-                                                                    Try Another PDF
-                                                                </button>
-                                                                <button
-                                                                    onClick={() => setActiveTab('form')}
-                                                                    className="btn btn--primary"
-                                                                >
-                                                                    Use Form Instead
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    )}
+                                                    </div>
+                                                </motion.div>
+                                            )}
+
+                                            {/* PDF Error Action Buttons - Show directly when PDF processing fails */}
+                                            {pdfVerificationResult && !pdfVerificationResult.success && (
+                                                <motion.div
+                                                    className="pdf-error-actions"
+                                                    initial={{ opacity: 0, y: 20 }}
+                                                    animate={{ opacity: 1, y: 0 }}
+                                                    transition={{ duration: 0.4, delay: 0.1 }}
+                                                >
+                                                    <button
+                                                        onClick={resetPdfUpload}
+                                                        className="btn btn--ghost btn--lg pdf-action-btn"
+                                                    >
+                                                        <span className="btn-icon">📄</span>
+                                                        <span>Try Another PDF</span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setActiveTab('form')}
+                                                        className="btn btn--primary btn--lg pdf-action-btn"
+                                                    >
+                                                        <span className="btn-icon">📝</span>
+                                                        <span>Use Form Instead</span>
+                                                    </button>
                                                 </motion.div>
                                             )}
                                         </div>

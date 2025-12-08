@@ -63,6 +63,7 @@ async def root():
             "health": "/health",
             "doctor_verification": "/api/doctor/verify",
             "doctor_search": "/api/doctor/search",
+            "pdf_extraction": "/api/doctor/extract-pdf",
             "specialties": "/api/doctor/specialties",
             "insurance_networks": "/api/doctor/insurance-networks"
         }

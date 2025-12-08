@@ -8,6 +8,7 @@ passlib[bcrypt]
 requests
 beautifulsoup4
 lxml
-
 python-dotenv
+PyPDF2
+pdfplumber
 

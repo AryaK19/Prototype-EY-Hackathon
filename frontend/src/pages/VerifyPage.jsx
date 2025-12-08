@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import './VerifyPage.css';
@@ -305,8 +305,14 @@ const VerificationTimeline = ({ timestamp, verificationId }) => {
 };
 
 const VerifyPage = () => {
+    const [activeTab, setActiveTab] = useState('form'); // 'form' or 'pdf'
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitResult, setSubmitResult] = useState(null);
+    const [pdfFile, setPdfFile] = useState(null);
+    const [pdfText, setPdfText] = useState('');
+    const [isProcessingPdf, setIsProcessingPdf] = useState(false);
+    const [pdfVerificationResult, setPdfVerificationResult] = useState(null);
+    const fileInputRef = useRef(null);
 
     const [formData, setFormData] = useState({
         fullName: '',
@@ -367,6 +373,80 @@ const VerifyPage = () => {
 
         return { verified, unverified, notFound, missingDataFound, confidence, fields, sources, total };
     }, [submitResult]);
+
+    // PDF Processing Functions
+    const processPDFForVerification = useCallback(async (file) => {
+        setIsProcessingPdf(true);
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+            const response = await fetch(`${backendUrl}/api/doctor/extract-pdf`, {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Failed to process PDF');
+            }
+
+            const result = await response.json();
+            setPdfText(result.extracted_text || '');
+            
+            // Set verification results if available
+            if (result.has_verification && result.verification_results) {
+                setPdfVerificationResult({
+                    success: true,
+                    data: result.verification_results,
+                    extractedInfo: result.provider_info
+                });
+            } else {
+                // Show extracted info if verification couldn't be performed
+                setPdfVerificationResult({
+                    success: false,
+                    extractedInfo: result.provider_info,
+                    error: "Could not perform verification - insufficient data extracted from PDF"
+                });
+            }
+            
+            return result;
+        } catch (error) {
+            console.error('Error processing PDF:', error);
+            throw new Error('Failed to process PDF: ' + error.message);
+        } finally {
+            setIsProcessingPdf(false);
+        }
+    }, []);
+
+    const handlePdfUpload = useCallback(async (file) => {
+        try {
+            setPdfFile(file);
+            await processPDFForVerification(file);
+        } catch (error) {
+            console.error('Error processing PDF:', error);
+            alert('Error processing PDF: ' + error.message);
+        }
+    }, [processPDFForVerification]);
+
+    const handleFileSelect = useCallback((event) => {
+        const file = event.target.files[0];
+        if (file && file.type === 'application/pdf') {
+            handlePdfUpload(file);
+        } else {
+            alert('Please select a valid PDF file');
+        }
+    }, [handlePdfUpload]);
+
+    const resetPdfUpload = useCallback(() => {
+        setPdfFile(null);
+        setPdfText('');
+        setPdfVerificationResult(null);
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+    }, []);
 
     const handleInputChange = (e) => {
         const { name, value } = e.target;
@@ -742,174 +822,342 @@ const VerifyPage = () => {
                             </div>
                         </motion.div>
                     ) : (
-                        <motion.form
+                        <motion.div
                             key="form"
-                            className="verify-form"
-                            onSubmit={handleSubmit}
+                            className="verify-form-container"
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: -20 }}
                             transition={{ duration: 0.4 }}
                         >
-                            {/* Section 1: Identify */}
-                            <div className="verify-form__section">
-                                <div className="verify-form__section-header">
-                                    <span className="verify-form__section-number">1</span>
-                                    <div>
-                                        <h2 className="verify-form__section-title">Identify Provider</h2>
-                                        <p className="verify-form__section-subtitle">Required fields to identify the healthcare provider</p>
-                                    </div>
-                                </div>
-
-                                <div className="verify-form__grid">
-                                    <div className="form-group">
-                                        <label htmlFor="fullName" className="form-label">
-                                            Full Name <span className="required">*</span>
-                                        </label>
-                                        <input
-                                            type="text"
-                                            id="fullName"
-                                            name="fullName"
-                                            className={`form-input ${errors.fullName ? 'form-input--error' : ''}`}
-                                            placeholder="Dr. Sarah Johnson, MD"
-                                            value={formData.fullName}
-                                            onChange={handleInputChange}
-                                        />
-                                        {errors.fullName && <span className="form-error">{errors.fullName}</span>}
-                                    </div>
-
-                                    <div className="form-group">
-                                        <label htmlFor="specialty" className="form-label">
-                                            Specialty <span className="required">*</span>
-                                        </label>
-                                        <select
-                                            id="specialty"
-                                            name="specialty"
-                                            className={`form-select ${errors.specialty ? 'form-input--error' : ''}`}
-                                            value={formData.specialty}
-                                            onChange={handleInputChange}
-                                        >
-                                            <option value="">Select a specialty...</option>
-                                            {SPECIALTIES.map(spec => (
-                                                <option key={spec} value={spec}>{spec}</option>
-                                            ))}
-                                        </select>
-                                        {errors.specialty && <span className="form-error">{errors.specialty}</span>}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Section 2: Verify Details */}
-                            <div className="verify-form__section">
-                                <div className="verify-form__section-header">
-                                    <span className="verify-form__section-number">2</span>
-                                    <div>
-                                        <h2 className="verify-form__section-title">Verify Details</h2>
-                                        <p className="verify-form__section-subtitle">Optional fields to validate provider information</p>
-                                    </div>
-                                </div>
-
-                                <div className="verify-form__grid">
-                                    <div className="form-group form-group--full">
-                                        <label htmlFor="address" className="form-label">Address</label>
-                                        <input
-                                            type="text"
-                                            id="address"
-                                            name="address"
-                                            className="form-input"
-                                            placeholder="123 Medical Center Dr, Suite 100, City, State 12345"
-                                            value={formData.address}
-                                            onChange={handleInputChange}
-                                        />
-                                    </div>
-
-                                    <div className="form-group">
-                                        <label htmlFor="phoneNumber" className="form-label">Phone Number</label>
-                                        <input
-                                            type="tel"
-                                            id="phoneNumber"
-                                            name="phoneNumber"
-                                            className="form-input"
-                                            placeholder="(555) 123-4567"
-                                            value={formData.phoneNumber}
-                                            onChange={handleInputChange}
-                                        />
-                                    </div>
-
-                                    <div className="form-group">
-                                        <label htmlFor="licenseNumber" className="form-label">License Number</label>
-                                        <input
-                                            type="text"
-                                            id="licenseNumber"
-                                            name="licenseNumber"
-                                            className="form-input"
-                                            placeholder="MD123456"
-                                            value={formData.licenseNumber}
-                                            onChange={handleInputChange}
-                                        />
-                                    </div>
-
-                                    <div className="form-group form-group--full">
-                                        <label className="form-label">Affiliated Insurance Networks</label>
-                                        <div className="insurance-grid">
-                                            {INSURANCE_NETWORKS.map(network => (
-                                                <label
-                                                    key={network}
-                                                    className={`insurance-chip ${formData.insuranceNetworks.includes(network) ? 'insurance-chip--selected' : ''}`}
-                                                >
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={formData.insuranceNetworks.includes(network)}
-                                                        onChange={() => handleNetworkToggle(network)}
-                                                    />
-                                                    <span className="insurance-chip__check">✓</span>
-                                                    <span>{network}</span>
-                                                </label>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    <div className="form-group form-group--full">
-                                        <label htmlFor="servicesOffered" className="form-label">Services Offered</label>
-                                        <textarea
-                                            id="servicesOffered"
-                                            name="servicesOffered"
-                                            className="form-textarea"
-                                            placeholder="List the clinical services, procedures, or specializations..."
-                                            rows={3}
-                                            value={formData.servicesOffered}
-                                            onChange={handleInputChange}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Submit */}
-                            <div className="verify-form__actions">
+                            {/* Tab Navigation */}
+                            <div className="verify-tabs">
                                 <button
-                                    type="submit"
-                                    className="btn btn--primary btn--lg"
-                                    disabled={isSubmitting}
+                                    className={`verify-tab ${activeTab === 'form' ? 'verify-tab--active' : ''}`}
+                                    onClick={() => setActiveTab('form')}
                                 >
-                                    {isSubmitting ? (
-                                        <>
-                                            <span className="btn-spinner"></span>
-                                            Verifying...
-                                        </>
-                                    ) : (
-                                        <>
-                                            Verify Provider
-                                            <svg viewBox="0 0 20 20" fill="currentColor">
-                                                <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
-                                            </svg>
-                                        </>
-                                    )}
+                                    <span className="verify-tab__icon">📝</span>
+                                    Form Validation
                                 </button>
-                                <Link to="/" className="btn btn--ghost btn--lg">
-                                    Cancel
-                                </Link>
+                                <button
+                                    className={`verify-tab ${activeTab === 'pdf' ? 'verify-tab--active' : ''}`}
+                                    onClick={() => setActiveTab('pdf')}
+                                >
+                                    <span className="verify-tab__icon">📄</span>
+                                    PDF Upload
+                                </button>
                             </div>
-                        </motion.form>
+
+                            {/* Tab Content */}
+                            <AnimatePresence mode="wait">
+                                {activeTab === 'form' ? (
+                                    <motion.form
+                                        key="form-tab"
+                                        className="verify-form"
+                                        onSubmit={handleSubmit}
+                                        initial={{ opacity: 0, x: 20 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        exit={{ opacity: 0, x: -20 }}
+                                        transition={{ duration: 0.3 }}
+                                    >
+                                        {/* Section 1: Identify */}
+                                        <div className="verify-form__section">
+                                            <div className="verify-form__section-header">
+                                                <span className="verify-form__section-number">1</span>
+                                                <div>
+                                                    <h2 className="verify-form__section-title">Identify Provider</h2>
+                                                    <p className="verify-form__section-subtitle">Required fields to identify the healthcare provider</p>
+                                                </div>
+                                            </div>
+
+                                            <div className="verify-form__grid">
+                                                <div className="form-group">
+                                                    <label htmlFor="fullName" className="form-label">
+                                                        Full Name <span className="required">*</span>
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        id="fullName"
+                                                        name="fullName"
+                                                        className={`form-input ${errors.fullName ? 'form-input--error' : ''}`}
+                                                        placeholder="Dr. Sarah Johnson, MD"
+                                                        value={formData.fullName}
+                                                        onChange={handleInputChange}
+                                                    />
+                                                    {errors.fullName && <span className="form-error">{errors.fullName}</span>}
+                                                </div>
+
+                                                <div className="form-group">
+                                                    <label htmlFor="specialty" className="form-label">
+                                                        Specialty <span className="required">*</span>
+                                                    </label>
+                                                    <select
+                                                        id="specialty"
+                                                        name="specialty"
+                                                        className={`form-select ${errors.specialty ? 'form-input--error' : ''}`}
+                                                        value={formData.specialty}
+                                                        onChange={handleInputChange}
+                                                    >
+                                                        <option value="">Select a specialty...</option>
+                                                        {SPECIALTIES.map(spec => (
+                                                            <option key={spec} value={spec}>{spec}</option>
+                                                        ))}
+                                                    </select>
+                                                    {errors.specialty && <span className="form-error">{errors.specialty}</span>}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Section 2: Verify Details */}
+                                        <div className="verify-form__section">
+                                            <div className="verify-form__section-header">
+                                                <span className="verify-form__section-number">2</span>
+                                                <div>
+                                                    <h2 className="verify-form__section-title">Verify Details</h2>
+                                                    <p className="verify-form__section-subtitle">Optional fields to validate provider information</p>
+                                                </div>
+                                            </div>
+
+                                            <div className="verify-form__grid">
+                                                <div className="form-group form-group--full">
+                                                    <label htmlFor="address" className="form-label">Address</label>
+                                                    <input
+                                                        type="text"
+                                                        id="address"
+                                                        name="address"
+                                                        className="form-input"
+                                                        placeholder="123 Medical Center Dr, Suite 100, City, State 12345"
+                                                        value={formData.address}
+                                                        onChange={handleInputChange}
+                                                    />
+                                                </div>
+
+                                                <div className="form-group">
+                                                    <label htmlFor="phoneNumber" className="form-label">Phone Number</label>
+                                                    <input
+                                                        type="tel"
+                                                        id="phoneNumber"
+                                                        name="phoneNumber"
+                                                        className="form-input"
+                                                        placeholder="(555) 123-4567"
+                                                        value={formData.phoneNumber}
+                                                        onChange={handleInputChange}
+                                                    />
+                                                </div>
+
+                                                <div className="form-group">
+                                                    <label htmlFor="licenseNumber" className="form-label">License Number</label>
+                                                    <input
+                                                        type="text"
+                                                        id="licenseNumber"
+                                                        name="licenseNumber"
+                                                        className="form-input"
+                                                        placeholder="MD123456"
+                                                        value={formData.licenseNumber}
+                                                        onChange={handleInputChange}
+                                                    />
+                                                </div>
+
+                                                <div className="form-group form-group--full">
+                                                    <label className="form-label">Affiliated Insurance Networks</label>
+                                                    <div className="insurance-grid">
+                                                        {INSURANCE_NETWORKS.map(network => (
+                                                            <label
+                                                                key={network}
+                                                                className={`insurance-chip ${formData.insuranceNetworks.includes(network) ? 'insurance-chip--selected' : ''}`}
+                                                            >
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={formData.insuranceNetworks.includes(network)}
+                                                                    onChange={() => handleNetworkToggle(network)}
+                                                                />
+                                                                <span className="insurance-chip__check">✓</span>
+                                                                <span>{network}</span>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                </div>
+
+                                                <div className="form-group form-group--full">
+                                                    <label htmlFor="servicesOffered" className="form-label">Services Offered</label>
+                                                    <textarea
+                                                        id="servicesOffered"
+                                                        name="servicesOffered"
+                                                        className="form-textarea"
+                                                        placeholder="List the clinical services, procedures, or specializations..."
+                                                        rows={3}
+                                                        value={formData.servicesOffered}
+                                                        onChange={handleInputChange}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Submit */}
+                                        <div className="verify-form__actions">
+                                            <button
+                                                type="submit"
+                                                className="btn btn--primary btn--lg"
+                                                disabled={isSubmitting}
+                                            >
+                                                {isSubmitting ? (
+                                                    <>
+                                                        <span className="btn-spinner"></span>
+                                                        Verifying...
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        Verify Provider
+                                                        <svg viewBox="0 0 20 20" fill="currentColor">
+                                                            <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                                                        </svg>
+                                                    </>
+                                                )}
+                                            </button>
+                                            <Link to="/" className="btn btn--ghost btn--lg">
+                                                Cancel
+                                            </Link>
+                                        </div>
+                                    </motion.form>
+                                ) : (
+                                    <motion.div
+                                        key="pdf-tab"
+                                        className="pdf-upload-section"
+                                        initial={{ opacity: 0, x: -20 }}
+                                        animate={{ opacity: 1, x: 0 }}
+                                        exit={{ opacity: 0, x: 20 }}
+                                        transition={{ duration: 0.3 }}
+                                    >
+                                        <div className="pdf-upload">
+                                            <div className="pdf-upload__header">
+                                                <h2 className="pdf-upload__title">Upload Provider Document</h2>
+                                                <p className="pdf-upload__subtitle">
+                                                    Upload a PDF document containing provider information for automatic extraction
+                                                </p>
+                                            </div>
+
+                                            <div className="pdf-upload__dropzone">
+                                                <input
+                                                    type="file"
+                                                    accept=".pdf"
+                                                    onChange={handleFileSelect}
+                                                    ref={fileInputRef}
+                                                    className="pdf-upload__input"
+                                                />
+                                                
+                                                <div className="pdf-upload__content">
+                                                    {isProcessingPdf ? (
+                                                        <div className="pdf-upload__processing">
+                                                            <div className="pdf-upload__spinner"></div>
+                                                            <p>Processing PDF...</p>
+                                                        </div>
+                                                    ) : pdfFile ? (
+                                                        <div className="pdf-upload__success">
+                                                            <div className="pdf-upload__icon">✓</div>
+                                                            <h3>{pdfFile.name}</h3>
+                                                            <p>File uploaded successfully</p>
+                                                            <button
+                                                                onClick={resetPdfUpload}
+                                                                className="btn btn--ghost btn--sm"
+                                                            >
+                                                                Upload Different File
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="pdf-upload__placeholder">
+                                                            <div className="pdf-upload__icon">📄</div>
+                                                            <h3>Drop your PDF here</h3>
+                                                            <p>or click to browse files</p>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => fileInputRef.current?.click()}
+                                                                className="btn btn--primary"
+                                                            >
+                                                                Select PDF File
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* PDF Verification Results */}
+                                            {pdfVerificationResult && (
+                                                <motion.div
+                                                    className="pdf-verification-results"
+                                                    initial={{ opacity: 0, y: 20 }}
+                                                    animate={{ opacity: 1, y: 0 }}
+                                                    transition={{ duration: 0.4 }}
+                                                >
+                                                    {pdfVerificationResult.success ? (
+                                                        <div className="pdf-verification-success">
+                                                            <h3 className="pdf-verification-title">
+                                                                <span className="pdf-verification-icon">✅</span>
+                                                                PDF Verification Complete
+                                                            </h3>
+                                                            
+                                                            <div className="pdf-verification-summary">
+                                                                <p>Provider information was extracted and verified against our database.</p>
+                                                                <button
+                                                                    onClick={() => setSubmitResult(pdfVerificationResult)}
+                                                                    className="btn btn--primary btn--lg"
+                                                                >
+                                                                    <span>📊</span>
+                                                                    View Detailed Results
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="pdf-verification-partial">
+                                                            <h3 className="pdf-verification-title">
+                                                                <span className="pdf-verification-icon">⚠️</span>
+                                                                Partial Information Extracted
+                                                            </h3>
+                                                            
+                                                            <p className="pdf-verification-message">
+                                                                {pdfVerificationResult.error}
+                                                            </p>
+                                                            
+                                                            {pdfVerificationResult.extractedInfo && (
+                                                                <div className="extracted-info-preview">
+                                                                    <h4>Extracted Information:</h4>
+                                                                    <div className="extracted-fields-grid">
+                                                                        {Object.entries(pdfVerificationResult.extractedInfo).map(([key, value]) => (
+                                                                            value && (
+                                                                                <div key={key} className="extracted-field-item">
+                                                                                    <span className="field-label">
+                                                                                        {FIELD_CONFIG[key]?.icon} {FIELD_CONFIG[key]?.label || key}:
+                                                                                    </span>
+                                                                                    <span className="field-value">{value}</span>
+                                                                                </div>
+                                                                            )
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                            
+                                                            <div className="pdf-verification-actions">
+                                                                <button
+                                                                    onClick={resetPdfUpload}
+                                                                    className="btn btn--ghost"
+                                                                >
+                                                                    Try Another PDF
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => setActiveTab('form')}
+                                                                    className="btn btn--primary"
+                                                                >
+                                                                    Use Form Instead
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </motion.div>
+                                            )}
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </motion.div>
                     )}
                 </AnimatePresence>
             </div>

@@ -7,6 +7,10 @@ import sys
 import os
 from datetime import datetime
 import json
+import re
+import PyPDF2
+import pdfplumber
+from io import BytesIO
 
 # Add helpers to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'helpers'))
@@ -739,6 +743,264 @@ async def get_specialties():
 async def get_insurance_networks():
     """Get list of available insurance networks"""
     return {"networks": INSURANCE_NETWORKS}
+
+@router.post("/extract-pdf")
+async def extract_provider_from_pdf(file: UploadFile = File(...)):
+    """Extract provider information from uploaded PDF and perform verification"""
+    try:
+        # Validate file type
+        if not file.filename.lower().endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+        
+        # Read file content
+        file_content = await file.read()
+        
+        # Extract text from PDF
+        extracted_text = await extract_text_from_pdf(file_content)
+        
+        if not extracted_text.strip():
+            raise HTTPException(status_code=400, detail="No text could be extracted from the PDF")
+        
+        # Parse provider information
+        provider_info = parse_provider_info(extracted_text)
+        
+        # Create verification request from extracted data
+        verification_request = DoctorVerificationRequest(
+            fullName=provider_info.get("fullName", ""),
+            specialty=provider_info.get("specialty", ""),
+            address=provider_info.get("address"),
+            phoneNumber=provider_info.get("phoneNumber"),
+            licenseNumber=provider_info.get("licenseNumber"),
+            insuranceNetworks=[],  # Not extracted from PDF
+            servicesOffered=provider_info.get("servicesOffered")
+        )
+        
+        # Perform verification if we have minimum required data
+        verification_results = None
+        if verification_request.fullName and verification_request.specialty:
+            try:
+                # Use the same verification logic as the form endpoint
+                scraper = DoctorInfoScraper()
+                scraped_data = search_doctor_info(
+                    verification_request.fullName,
+                    verification_request.specialty
+                )
+                
+                # Create verification results using the same logic as verify endpoint
+                verification_id = f"VER_PDF_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hash(verification_request.fullName) % 10000:04d}"
+                
+                verification_result = await analyze_verification(verification_request, scraped_data)
+                
+                # Create the same result structure as the verify endpoint
+                verification_results = VerificationResult(
+                    verification_id=verification_id,
+                    timestamp=datetime.now().isoformat(),
+                    fullName=verification_result["fullName"],
+                    specialty=verification_result["specialty"],
+                    address=verification_result["address"],
+                    phoneNumber=verification_result["phoneNumber"],
+                    licenseNumber=verification_result["licenseNumber"],
+                    insuranceNetworks=verification_result["insuranceNetworks"],
+                    servicesOffered=verification_result["servicesOffered"]
+                )
+                
+            except Exception as e:
+                logger.warning(f"Verification failed for PDF data: {str(e)}")
+                # Continue without verification results
+        
+        return {
+            "success": True,
+            "extracted_text": extracted_text[:500] + "..." if len(extracted_text) > 500 else extracted_text,
+            "provider_info": provider_info,
+            "verification_results": verification_results,
+            "filename": file.filename,
+            "timestamp": datetime.now().isoformat(),
+            "has_verification": verification_results is not None
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error processing PDF: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"PDF processing failed: {str(e)}")
+
+async def extract_text_from_pdf(file_content: bytes) -> str:
+    """Extract text from PDF file content"""
+    full_text = ""
+    
+    try:
+        # Try with pdfplumber first (better for complex layouts)
+        with pdfplumber.open(BytesIO(file_content)) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    full_text += page_text + "\n"
+    except Exception as e:
+        logger.warning(f"pdfplumber failed: {e}, trying PyPDF2")
+        
+        # Fallback to PyPDF2
+        try:
+            pdf_reader = PyPDF2.PdfReader(BytesIO(file_content))
+            for page in pdf_reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    full_text += page_text + "\n"
+        except Exception as e2:
+            logger.error(f"PyPDF2 also failed: {e2}")
+            raise HTTPException(status_code=500, detail="Could not extract text from PDF")
+    
+    return full_text.strip()
+
+def parse_provider_info(text: str) -> Dict[str, str]:
+    """Parse provider information from extracted PDF text with intelligent field detection"""
+    provider_info = {
+        "fullName": "",
+        "specialty": "",
+        "address": "",
+        "phoneNumber": "",
+        "licenseNumber": "",
+        "servicesOffered": ""
+    }
+    
+    # Normalize text for better parsing
+    text = re.sub(r'\s+', ' ', text)  # Replace multiple spaces with single space
+    lines = text.split('\n')
+    
+    # Smart field detection - look for key-value patterns
+    field_patterns = {
+        'fullName': [
+            r'(?:name|full\s*name|fullname|provider\s*name|doctor\s*name|physician\s*name|dr\s*name)\s*[:\-\s]\s*([a-zA-Z\s\.,]+?)(?:\n|$|,\s*M\.?D\.?)',
+            r'(?:name|full\s*name|fullname)\s*[:\-\s]\s*([a-zA-Z\s\.,]+?)(?:\s+specialty|\s+phone|\s+address|\n|$)',
+            r'(?:^|\n)\s*([A-Z][a-z]+\s+[A-Z][a-z]+)(?:\s*,?\s*M\.?D\.?|\s*$)',
+            r'(?:Dr\.?\s+)([A-Z][a-z]+\s+[A-Z][a-z]+)',
+            # More flexible pattern for simple "Name : Value" format
+            r'name\s*:\s*([a-zA-Z\s]+?)(?:\s*\n|\s*specialty|\s*address|\s*phone|$)',
+        ],
+        'specialty': [
+            r'(?:specialty|speciality|specialization|field|practice\s*area|medical\s*specialty)\s*[:\-\s]\s*([a-zA-Z\s&,\-()]+?)(?:\n|$)',
+            # Direct specialty matching from our list
+        ],
+        'address': [
+            r'(?:address|location|clinic\s*address|office\s*address|practice\s*address)\s*[:\-\s]\s*([a-zA-Z0-9\s,.\-]+?)(?=\s*(?:phone|tel|telephone|contact|cell|mobile|specialty|license|name|$|\n))',
+            r'([a-zA-Z\s,]+,\s*[a-zA-Z\s]+(?:,\s*[a-zA-Z]{2})?)(?:\s*\d{5,6})?(?=\s*(?:phone|tel|telephone|contact|cell|mobile|specialty|license|name|$|\n))',  # City, State pattern
+            r'(\d+\s+[a-zA-Z\s]+(?:Street|St|Avenue|Ave|Road|Rd|Drive|Dr|Lane|Ln|Boulevard|Blvd)(?:\s+[a-zA-Z0-9\s,]+?)?)(?=\s*(?:phone|tel|telephone|contact|cell|mobile|specialty|license|name|$|\n))',
+        ],
+        'phoneNumber': [
+            r'(?:phone|tel|telephone|contact|cell|mobile|number|ph|call)\s*[:\-\s]?\s*(\+?1?[-.\s]?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})',
+            r'(\+?1?[-.\s]?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4})',
+            r'(\d{10})',  # Simple 10-digit number
+        ],
+        'licenseNumber': [
+            r'(?:license|medical\s*license|state\s*license|license\s*number|license\s*no|lic|reg\s*no|registration)\s*[:\-\s#]?\s*([A-Z0-9]+)',
+            r'(?:license|lic)\.?\s*#?\s*([A-Z0-9]{4,})',
+        ]
+    }
+    
+    # Extract full name with intelligent patterns
+    for pattern in field_patterns['fullName']:
+        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+        if match:
+            name = match.group(1).strip()
+            # Clean up common suffixes and prefixes
+            name = re.sub(r'^(Dr\.?|Doctor)\s*', '', name, flags=re.IGNORECASE)
+            name = re.sub(r'\s*,?\s*(M\.?D\.?|MD|Ph\.?D\.?|PhD).*$', '', name, flags=re.IGNORECASE)
+            # Validate it looks like a name (at least 2 words, proper capitalization)
+            if len(name.split()) >= 2 and not name.isupper() and not name.islower():
+                provider_info["fullName"] = name.title()
+                break
+    
+    # Extract specialty - try pattern matching first, then direct specialty matching
+    for pattern in field_patterns['specialty']:
+        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+        if match:
+            specialty_text = match.group(1).strip()
+            # Check if extracted text matches any of our specialties
+            for specialty in SPECIALTIES:
+                if specialty.lower() in specialty_text.lower():
+                    provider_info["specialty"] = specialty
+                    break
+            if provider_info["specialty"]:
+                break
+    
+    # If no specialty found through patterns, try direct matching
+    if not provider_info["specialty"]:
+        for specialty in SPECIALTIES:
+            if re.search(r'\b' + re.escape(specialty.lower()) + r'\b', text.lower()):
+                provider_info["specialty"] = specialty
+                break
+    
+    # Extract address with multiple approaches
+    for pattern in field_patterns['address']:
+        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+        if match:
+            address = match.group(1).strip()
+            # Clean up and validate address
+            address = re.sub(r'^[:\-\s]+', '', address)  # Remove leading separators
+            address = re.sub(r'[:\-\s]+$', '', address)  # Remove trailing separators
+            # Basic validation - should have at least city/state or street info
+            if (len(address.split()) >= 2 and 
+                (any(word.lower() in address.lower() for word in ['street', 'st', 'avenue', 'ave', 'road', 'rd', 'drive', 'dr', 'lane', 'ln']) or
+                 ',' in address)):  # Contains comma (likely city, state)
+                provider_info["address"] = address
+                break
+    
+    # Extract phone number with flexible formatting
+    for pattern in field_patterns['phoneNumber']:
+        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+        if match:
+            phone = match.group(1).strip()
+            # Clean and format phone number
+            phone_digits = re.sub(r'[^\d]', '', phone)
+            if len(phone_digits) == 10:
+                # Format as (XXX) XXX-XXXX
+                provider_info["phoneNumber"] = f"({phone_digits[:3]}) {phone_digits[3:6]}-{phone_digits[6:]}"
+                break
+            elif len(phone_digits) == 11 and phone_digits[0] == '1':
+                # Remove leading 1 and format
+                phone_digits = phone_digits[1:]
+                provider_info["phoneNumber"] = f"({phone_digits[:3]}) {phone_digits[3:6]}-{phone_digits[6:]}"
+                break
+    
+    # Extract license number
+    for pattern in field_patterns['licenseNumber']:
+        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+        if match:
+            license_num = match.group(1).strip()
+            # Basic validation - should be alphanumeric and reasonable length
+            if re.match(r'^[A-Z0-9]{4,20}$', license_num, re.IGNORECASE):
+                provider_info["licenseNumber"] = license_num.upper()
+                break
+    
+    # Extract services with enhanced keyword detection
+    service_keywords = [
+        'consultation', 'diagnosis', 'treatment', 'surgery', 'examination',
+        'therapy', 'screening', 'preventive care', 'emergency care',
+        'specialist care', 'follow-up', 'procedure', 'immunization',
+        'checkup', 'physical exam', 'wellness', 'chronic disease management',
+        'telemedicine', 'urgent care', 'routine care', 'medical evaluation'
+    ]
+    
+    # Look for services in context
+    services_pattern = r'(?:services|treatments|procedures|specialties|offers|provides)\s*[:\-\s]\s*([^.\n]+)'
+    services_match = re.search(services_pattern, text, re.IGNORECASE | re.MULTILINE)
+    
+    found_services = set()
+    
+    if services_match:
+        services_text = services_match.group(1).lower()
+        for keyword in service_keywords:
+            if keyword in services_text:
+                found_services.add(keyword.title())
+    else:
+        # Fallback to general keyword search
+        for keyword in service_keywords:
+            if re.search(r'\b' + re.escape(keyword) + r'\b', text.lower()):
+                found_services.add(keyword.title())
+    
+    if found_services:
+        provider_info["servicesOffered"] = ", ".join(sorted(list(found_services))[:5])
+    
+    return provider_info
 
 @router.get("/health")
 async def health_check():

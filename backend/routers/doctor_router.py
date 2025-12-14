@@ -186,7 +186,7 @@ def verify_full_name(input_name: str, scraped_data: Dict, best_provider) -> Dict
         "input_field_a": input_name if input_name else None,
         "scraped_data_field_a": None,
         "scraped_from": None,
-        "matches": False
+        "matches": None  # Changed from False to None - will be set based on logic
     }
     
     try:
@@ -241,7 +241,7 @@ def verify_specialty(input_specialty: str, scraped_data: Dict, best_provider) ->
         "input_field_a": input_specialty if input_specialty else None,
         "scraped_data_field_a": None,
         "scraped_from": None,
-        "matches": False
+        "matches": None  # Changed from False to None - will be set based on logic
     }
     
     try:
@@ -306,7 +306,7 @@ def verify_address(input_address: str, scraped_data: Dict, best_provider) -> Dic
         "input_field_a": input_address if input_address else None,
         "scraped_data_field_a": None,
         "scraped_from": None,
-        "matches": False
+        "matches": None  # Changed from False to None - will be set based on logic
     }
     
     try:
@@ -399,7 +399,7 @@ def verify_phone_number(input_phone: str, scraped_data: Dict, best_provider) -> 
         "input_field_a": input_phone if input_phone else None,
         "scraped_data_field_a": None,
         "scraped_from": None,
-        "matches": False
+        "matches": None  # Changed from False to None - will be set based on logic
     }
     
     # Normalize phone number function
@@ -471,56 +471,87 @@ def verify_license_number(input_license: str, scraped_data: Dict, best_provider,
         "input_field_a": input_license if input_license else None,
         "scraped_data_field_a": None,
         "scraped_from": None,
-        "matches": False
+        "matches": None  # Changed from False to None - will be set based on logic
     }
     
     try:
         if best_provider and isinstance(best_provider, dict):
             taxonomies = best_provider.get("taxonomies", [])
             if isinstance(taxonomies, list):
-                # First, find license where desc matches specialty
                 matching_license = None
-                logger.debug(f"Looking for license matching specialty: {request_specialty}")
+                logger.debug(f"Looking for license matching specialty: '{request_specialty}'")
+                logger.debug(f"Available taxonomies: {[{tax.get('desc'): tax.get('license')} for tax in taxonomies if isinstance(tax, dict)]}")
                 
-                for tax in taxonomies:
-                    if isinstance(tax, dict) and tax.get("desc") and tax.get("license"):
-                        tax_desc = tax.get("desc", "").lower()
-                        specialty_match = request_specialty.lower() in tax_desc or tax_desc in request_specialty.lower()
-                        
-                        logger.debug(f"Checking taxonomy: desc='{tax_desc}', license='{tax.get('license')}', specialty_match={specialty_match}")
-                        
-                        if specialty_match:
-                            matching_license = tax.get("license")
-                            logger.debug(f"Found matching license: {matching_license}")
-                            break
+                # Strategy 1: Find license where desc matches specialty (case insensitive)
+                if request_specialty and request_specialty.strip():
+                    for tax in taxonomies:
+                        if isinstance(tax, dict) and tax.get("desc") and tax.get("license"):
+                            tax_desc = tax.get("desc", "").lower().strip()
+                            specialty_lower = request_specialty.lower().strip()
+                            
+                            # More flexible matching
+                            specialty_match = (
+                                specialty_lower == tax_desc or
+                                specialty_lower in tax_desc or 
+                                tax_desc in specialty_lower or
+                                # Handle common variations
+                                (specialty_lower == "family medicine" and "family" in tax_desc) or
+                                (specialty_lower == "internal medicine" and "internal" in tax_desc) or
+                                (specialty_lower == "cardiology" and ("cardio" in tax_desc or "heart" in tax_desc))
+                            )
+                            
+                            logger.debug(f"Checking taxonomy: desc='{tax_desc}', license='{tax.get('license')}', specialty_match={specialty_match}")
+                            
+                            if specialty_match and tax.get("license", "").strip():
+                                matching_license = tax.get("license").strip()
+                                logger.debug(f"Found matching license by specialty: {matching_license}")
+                                break
                 
-                # If no specialty match found, fall back to primary license
+                # Strategy 2: If no specialty match found, fall back to primary license
                 if not matching_license:
+                    logger.debug("No specialty match found, looking for primary license...")
                     for tax in taxonomies:
                         if isinstance(tax, dict) and tax.get("primary") == True and tax.get("license"):
-                            matching_license = tax.get("license")
-                            logger.debug(f"Using primary license: {matching_license}")
-                            break
+                            license_value = tax.get("license", "").strip()
+                            if license_value and license_value != "--" and license_value.upper() != "N/A":
+                                matching_license = license_value
+                                logger.debug(f"Found primary license: {matching_license}")
+                                break
                 
-                # If still no license found, get first available
+                # Strategy 3: If still no license found, get first available non-empty license
                 if not matching_license:
+                    logger.debug("No primary license found, using first available license...")
                     for tax in taxonomies:
                         if isinstance(tax, dict) and tax.get("license"):
-                            matching_license = tax.get("license")
-                            logger.debug(f"Using first available license: {matching_license}")
-                            break
+                            license_value = tax.get("license", "").strip()
+                            if license_value and license_value != "--" and license_value.upper() != "N/A":
+                                matching_license = license_value
+                                logger.debug(f"Found first available license: {matching_license}")
+                                break
                 
-                if matching_license and matching_license.strip():
+                # Set the result if we found a license
+                if matching_license:
                     result["scraped_data_field_a"] = matching_license
                     result["scraped_from"] = "NPI Registry"
                     
                     if input_license and input_license.strip():
-                        result["matches"] = input_license.upper().strip() == matching_license.upper().strip()
+                        # Compare licenses (case insensitive, strip whitespace)
+                        input_clean = input_license.upper().strip()
+                        found_clean = matching_license.upper().strip()
+                        result["matches"] = input_clean == found_clean
+                        logger.debug(f"License comparison: input='{input_clean}' vs found='{found_clean}' -> matches={result['matches']}")
                     else:
-                        result["matches"] = None
+                        result["matches"] = None  # No input to compare against
+                        logger.debug(f"No input license provided, but found license: {matching_license}")
+                else:
+                    logger.debug("No license found in any taxonomy")
+                    
     except Exception as e:
         logger.error(f"Error in verify_license_number: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
     
+    logger.debug(f"Final license result: {result}")
     return result
 
 def verify_insurance_networks(input_networks: List[str], scraped_data: Dict, best_provider) -> Dict:
@@ -529,7 +560,7 @@ def verify_insurance_networks(input_networks: List[str], scraped_data: Dict, bes
         "input_field_a": input_networks if input_networks else None,
         "scraped_data_field_a": None,
         "scraped_from": None,
-        "matches": False
+        "matches": None  # Changed from False to None - will be set based on logic
     }
     
     try:
@@ -586,7 +617,7 @@ def verify_services_offered(input_services: str, scraped_data: Dict, best_provid
         "input_field_a": input_services if input_services else None,
         "scraped_data_field_a": None,
         "scraped_from": None,
-        "matches": False
+        "matches": None  # Changed from False to None - will be set based on logic
     }
     
     try:
@@ -627,9 +658,15 @@ async def verify_doctor(request: DoctorVerificationRequest, db: Session = Depend
         
         # Generate verification ID
         verification_id = f"VER_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hash(request.fullName) % 10000:04d}"
-        
-        # Search for doctor information
+          # Search for doctor information
         scraped_data = search_doctor_info(request.fullName, request.specialty)
+        
+        # Log scraped data for debugging
+        logger.debug(f"Scraped data for {request.fullName}: {scraped_data.keys() if scraped_data else 'None'}")
+        if scraped_data and scraped_data.get("npi_data"):
+            npi_data = scraped_data.get("npi_data", {})
+            logger.debug(f"NPI data result count: {npi_data.get('result_count', 0)}")
+            
         # Analyze verification results
         verification_result = await analyze_verification(request, scraped_data)
         

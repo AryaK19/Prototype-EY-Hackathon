@@ -1,17 +1,20 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import './ReportsPage.css';
-import './VerifyPage.css'; // Import VerifyPage CSS for statistical components
+import './VerifyPage.css';
 
 // Field display names and icons (same as VerifyPage)
 const FIELD_CONFIG = {
-    fullName: { label: 'Full Name', icon: '👤', category: 'identity' },
-    specialty: { label: 'Specialty', icon: '🏥', category: 'identity' },
-    address: { label: 'Address', icon: '📍', category: 'contact' },
-    phoneNumber: { label: 'Phone Number', icon: '📞', category: 'contact' },
-    licenseNumber: { label: 'License Number', icon: '🪪', category: 'credentials' },
-    insuranceNetworks: { label: 'Insurance Networks', icon: '🏛️', category: 'network' },
-    servicesOffered: { label: 'Services Offered', icon: '⚕️', category: 'services' },
+fullName: { label: 'Full Name', icon: '👤', category: 'identity' },
+specialty: { label: 'Specialty', icon: '🏥', category: 'identity' },
+address: { label: 'Address', icon: '📍', category: 'contact' },
+phoneNumber: { label: 'Phone Number', icon: '📞', category: 'contact' },
+licenseNumber: { label: 'License Number', icon: '🪪', category: 'credentials' },
+insuranceNetworks: { label: 'Insurance Networks', icon: '🏛️', category: 'network' },
+servicesOffered: { label: 'Services Offered', icon: '⚕️', category: 'services' },
 };
 
 // Donut Chart Component (exact same as VerifyPage)
@@ -301,6 +304,7 @@ const ReportsPage = () => {
     const [selectedReport, setSelectedReport] = useState(null);
     const [isVerifyingAll, setIsVerifyingAll] = useState(false);
     const [verifyAllResult, setVerifyAllResult] = useState(null);
+    const [isExpanded, setIsExpanded] = useState(false);
 
     // Fetch reports from API
     const fetchReports = async () => {
@@ -412,7 +416,195 @@ const ReportsPage = () => {
 
     const handleViewReport = (report) => {
         setSelectedReport(report);
+        setIsExpanded(false);
         setShowDetailModal(true);
+    };
+
+    // Download reports as Excel with styling
+    const handleDownloadExcel = () => {
+        if (reports.length === 0) return;
+
+        // Prepare data for Excel with styling info
+        const excelData = reports.map(report => {
+            const stats = calculateVerificationStats(report);
+            const needsAttention = stats.confidence < 70 || stats.unverified > 0;
+            return {
+                data: {
+                    'Verification ID': report.verification_id || 'N/A',
+                    'Provider Name': report.full_name_input || report.full_name_scraped || 'N/A',
+                    'Specialty': report.specialty_input || report.specialty_scraped || 'N/A',
+                    'Address (Input)': report.address_input || 'N/A',
+                    'Address (Found)': report.address_scraped || 'N/A',
+                    'Phone (Input)': report.phone_number_input || 'N/A',
+                    'Phone (Found)': report.phone_number_scraped || 'N/A',
+                    'License (Input)': report.license_number_input || 'N/A',
+                    'License (Found)': report.license_number_scraped || 'N/A',
+                    'Verified': stats.verified,
+                    'Mismatched': stats.unverified,
+                    'Not Found': stats.notFound,
+                    'Confidence': stats.confidence,
+                    'Status': stats.confidence >= 70 ? 'Verified' : stats.unverified > 0 ? 'Needs Review' : 'Incomplete',
+                    'Date': report.created_at ? new Date(report.created_at).toLocaleDateString() : 'N/A'
+                },
+                needsAttention,
+                confidence: stats.confidence,
+                mismatches: stats.unverified
+            };
+        });
+
+        // Generate styled HTML table for Excel
+        const html = generateStyledExcelHtml(excelData);
+        const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        const date = new Date().toISOString().split('T')[0];
+        link.download = `Provider_Verification_Reports_${date}.xls`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
+    // Download report as PDF
+    const handleDownloadPDF = (report) => {
+        if (!report) return;
+
+        const doc = new jsPDF();
+        const stats = calculateVerificationStats(report);
+
+        // Header
+        doc.setFillColor(26, 35, 50); // Dark blue
+        doc.rect(0, 0, 210, 40, 'F');
+
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(22);
+        doc.text("Provider Verification Report", 105, 20, { align: 'center' });
+
+        doc.setFontSize(10);
+        doc.text(`Verification ID: ${report.verification_id}`, 105, 30, { align: 'center' });
+
+        // Provider Info
+        doc.setTextColor(0, 0, 0);
+        doc.setFontSize(14);
+        doc.text("Provider Details", 14, 55);
+
+        doc.setFontSize(10);
+        doc.text(`Name: ${getDisplayName(report)}`, 14, 65);
+        doc.text(`Specialty: ${getDisplaySpecialty(report)}`, 14, 72);
+        doc.text(`Verification Date: ${new Date(report.created_at).toLocaleString()}`, 14, 79);
+
+        // Stats Summary
+        doc.setFontSize(14);
+        doc.text("Verification Summary", 120, 55);
+
+        doc.setFontSize(10);
+        doc.text(`Confidence Score: ${stats.confidence}%`, 120, 65);
+        doc.text(`Verified Fields: ${stats.verified}`, 120, 72);
+        doc.text(`Mismatched Fields: ${stats.unverified}`, 120, 79);
+
+        // Detailed Table
+        const tableData = stats.fields.map(field => {
+            const inputKey = field.name === 'fullName' ? 'full_name' :
+                field.name === 'phoneNumber' ? 'phone_number' :
+                    field.name === 'licenseNumber' ? 'license_number' :
+                        field.name === 'insuranceNetworks' ? 'insurance_networks' :
+                            field.name === 'servicesOffered' ? 'services_offered' : field.name;
+
+            // Get raw values for table
+            const inputVal = report[`${inputKey}_input`];
+            const scrapedVal = report[`${inputKey}_scraped`];
+
+            return [
+                field.label,
+                Array.isArray(inputVal) ? inputVal.join(', ') : (inputVal || '-'),
+                Array.isArray(scrapedVal) ? scrapedVal.join(', ') : (scrapedVal || '-'),
+                field.status === 'verified' ? 'Verified' :
+                    field.status === 'mismatch' ? 'Mismatch' :
+                        field.status === 'missing-data-found' ? 'Data Found' : 'Not Found'
+            ];
+        });
+
+        autoTable(doc, {
+            startY: 90,
+            head: [['Field', 'Input Data', 'Verified Data', 'Status']],
+            body: tableData,
+            headStyles: { fillColor: [26, 35, 50] },
+            alternateRowStyles: { fillColor: [245, 247, 250] },
+            didParseCell: function (data) {
+                if (data.section === 'body' && data.column.index === 3) {
+                    const status = data.cell.raw;
+                    if (status === 'Verified') {
+                        data.cell.styles.textColor = [27, 94, 32]; // Green
+                        data.cell.styles.fontStyle = 'bold';
+                    } else if (status === 'Mismatch') {
+                        data.cell.styles.textColor = [183, 28, 28]; // Red
+                        data.cell.styles.fontStyle = 'bold';
+                    }
+                }
+            }
+        });
+
+        // Footer
+        const pageCount = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= pageCount; i++) {
+            doc.setPage(i);
+            doc.setFontSize(8);
+            doc.setTextColor(150);
+            doc.text('Generated by Provider Verification System', 105, 290, { align: 'center' });
+        }
+
+        doc.save(`Verification_Report_${getDisplayName(report).replace(/[^a-z0-9]/gi, '_')}.pdf`);
+    };
+
+
+    // Generate styled HTML for Excel export
+    const generateStyledExcelHtml = (data) => {
+        const headers = Object.keys(data[0]?.data || {});
+
+        let html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+        <head><meta charset="UTF-8">
+        <style>
+            table { border-collapse: collapse; font-family: Calibri, Arial; font-size: 11pt; }
+            th { background-color: #1a2332; color: #ffffff; font-weight: bold; padding: 10px 8px; border: 1px solid #0d1421; text-align: center; }
+            td { padding: 8px; border: 1px solid #dee2e6; }
+            .attention { background-color: #ffebee !important; }
+            .attention td { background-color: #ffebee; }
+            .good { background-color: #e8f5e9; }
+            .good td { background-color: #e8f5e9; }
+        </style></head><body><table>
+        <tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>`;
+
+        data.forEach(row => {
+            const cls = row.needsAttention ? 'attention' : (row.confidence >= 70 ? 'good' : '');
+
+            html += `<tr class="${cls}">`;
+            headers.forEach(h => {
+                let style = '';
+                let val = row.data[h];
+
+                if (h === 'Confidence') {
+                    style = row.confidence >= 70 ? 'color:#1b5e20;font-weight:bold' : 'color:#b71c1c;font-weight:bold';
+                    val = val + '%';
+                } else if (h === 'Status') {
+                    if (val === 'Verified') style = 'color:#1b5e20;font-weight:bold;background-color:#c8e6c9';
+                    else if (val === 'Needs Review') style = 'color:#b71c1c;font-weight:bold;background-color:#ffcdd2';
+                    else style = 'color:#e65100;font-weight:bold;background-color:#fff3e0';
+                } else if (h === 'Mismatched' && row.mismatches > 0) {
+                    style = 'color:#b71c1c;font-weight:bold';
+                } else if (h === 'Provider Name') {
+                    style = 'font-weight:bold';
+                } else if (h === 'Verified') {
+                    style = 'color:#1b5e20;font-weight:bold';
+                }
+
+                html += `<td style="${style}">${val}</td>`;
+            });
+            html += '</tr>';
+        });
+
+        html += '</table></body></html>';
+        return html;
     };
 
     const calculateVerificationStats = (report) => {
@@ -635,6 +827,18 @@ const ReportsPage = () => {
                         ) : (
                             <><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>Run Verify All</>
                         )}
+                    </motion.button>
+                    <motion.button
+                        className="download-excel-button"
+                        onClick={handleDownloadExcel}
+                        disabled={reports.length === 0}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                    >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Download Excel
                     </motion.button>
                 </motion.div>
             </div>
@@ -885,7 +1089,7 @@ const ReportsPage = () => {
 
                             return (
                                 <motion.div
-                                    className="verification-results"
+                                    className={`verification-results ${isExpanded ? 'verification-results--expanded' : 'verification-results--popup'}`}
                                     initial={{ opacity: 0, scale: 0.95 }}
                                     animate={{ opacity: 1, scale: 1 }}
                                     exit={{ opacity: 0, scale: 0.95 }}
@@ -895,11 +1099,43 @@ const ReportsPage = () => {
                                     <div className="results-window">
                                         <div className="results-window__header">
                                             <div className="results-window__dots">
-                                                <span></span><span></span><span></span>
+                                                <button
+                                                    className="window-dot window-dot--close"
+                                                    onClick={() => setShowDetailModal(false)}
+                                                    title="Close"
+                                                >
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                                        <path d="M6 18L18 6M6 6l12 12" />
+                                                    </svg>
+                                                </button>
+                                                <span className="window-dot window-dot--minimize" title="Minimize"></span>
+                                                <button
+                                                    className="window-dot window-dot--maximize"
+                                                    onClick={() => setIsExpanded(!isExpanded)}
+                                                    title={isExpanded ? "Contract" : "Expand"}
+                                                >
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                                        {isExpanded ? (
+                                                            <path d="M4 14h6v6M20 10h-6V4" />
+                                                        ) : (
+                                                            <path d="M15 3h6v6M9 21H3v-6" />
+                                                        )}
+                                                    </svg>
+                                                </button>
                                             </div>
                                             <span>Provider Validation Results</span>
                                             <span className="results-window__id">{selectedReport.verification_id}</span>
-                                        </div>
+
+                                            <button
+                                                className="download-pdf-btn"
+                                                onClick={() => handleDownloadPDF(selectedReport)}
+                                                title="Download PDF Report"
+                                            >
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                    <path d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                </svg>
+                                                <span>PDF</span>
+                                            </button></div>
 
                                         <div className="results-window__content">
                                             {/* Provider Summary */}
@@ -1025,11 +1261,7 @@ const ReportsPage = () => {
                                     </div>
 
                                     {/* Results Actions */}
-                                    <div className="results-actions">
-                                        <button onClick={() => setShowDetailModal(false)} className="btn btn--primary btn--lg">
-                                            <span>🔙</span> Back to Reports
-                                        </button>
-                                    </div>
+                                    {/* Results Actions - Removed */}
                                 </motion.div>
                             );
                         })()}

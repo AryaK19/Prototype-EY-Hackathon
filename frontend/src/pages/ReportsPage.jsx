@@ -1,18 +1,20 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import './ReportsPage.css';
-import './VerifyPage.css'; // Import VerifyPage CSS for statistical components
+import './VerifyPage.css';
 
 // Field display names and icons (same as VerifyPage)
 const FIELD_CONFIG = {
-    fullName: { label: 'Full Name', icon: '👤', category: 'identity' },
-    specialty: { label: 'Specialty', icon: '🏥', category: 'identity' },
-    address: { label: 'Address', icon: '📍', category: 'contact' },
-    phoneNumber: { label: 'Phone Number', icon: '📞', category: 'contact' },
-    licenseNumber: { label: 'License Number', icon: '🪪', category: 'credentials' },
-    insuranceNetworks: { label: 'Insurance Networks', icon: '🏛️', category: 'network' },
-    servicesOffered: { label: 'Services Offered', icon: '⚕️', category: 'services' },
+fullName: { label: 'Full Name', icon: '👤', category: 'identity' },
+specialty: { label: 'Specialty', icon: '🏥', category: 'identity' },
+address: { label: 'Address', icon: '📍', category: 'contact' },
+phoneNumber: { label: 'Phone Number', icon: '📞', category: 'contact' },
+licenseNumber: { label: 'License Number', icon: '🪪', category: 'credentials' },
+insuranceNetworks: { label: 'Insurance Networks', icon: '🏛️', category: 'network' },
+servicesOffered: { label: 'Services Offered', icon: '⚕️', category: 'services' },
 };
 
 // Donut Chart Component (exact same as VerifyPage)
@@ -463,6 +465,98 @@ const ReportsPage = () => {
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
     };
+
+    // Download report as PDF
+    const handleDownloadPDF = (report) => {
+        if (!report) return;
+
+        const doc = new jsPDF();
+        const stats = calculateVerificationStats(report);
+
+        // Header
+        doc.setFillColor(26, 35, 50); // Dark blue
+        doc.rect(0, 0, 210, 40, 'F');
+
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(22);
+        doc.text("Provider Verification Report", 105, 20, { align: 'center' });
+
+        doc.setFontSize(10);
+        doc.text(`Verification ID: ${report.verification_id}`, 105, 30, { align: 'center' });
+
+        // Provider Info
+        doc.setTextColor(0, 0, 0);
+        doc.setFontSize(14);
+        doc.text("Provider Details", 14, 55);
+
+        doc.setFontSize(10);
+        doc.text(`Name: ${getDisplayName(report)}`, 14, 65);
+        doc.text(`Specialty: ${getDisplaySpecialty(report)}`, 14, 72);
+        doc.text(`Verification Date: ${new Date(report.created_at).toLocaleString()}`, 14, 79);
+
+        // Stats Summary
+        doc.setFontSize(14);
+        doc.text("Verification Summary", 120, 55);
+
+        doc.setFontSize(10);
+        doc.text(`Confidence Score: ${stats.confidence}%`, 120, 65);
+        doc.text(`Verified Fields: ${stats.verified}`, 120, 72);
+        doc.text(`Mismatched Fields: ${stats.unverified}`, 120, 79);
+
+        // Detailed Table
+        const tableData = stats.fields.map(field => {
+            const inputKey = field.name === 'fullName' ? 'full_name' :
+                field.name === 'phoneNumber' ? 'phone_number' :
+                    field.name === 'licenseNumber' ? 'license_number' :
+                        field.name === 'insuranceNetworks' ? 'insurance_networks' :
+                            field.name === 'servicesOffered' ? 'services_offered' : field.name;
+
+            // Get raw values for table
+            const inputVal = report[`${inputKey}_input`];
+            const scrapedVal = report[`${inputKey}_scraped`];
+
+            return [
+                field.label,
+                Array.isArray(inputVal) ? inputVal.join(', ') : (inputVal || '-'),
+                Array.isArray(scrapedVal) ? scrapedVal.join(', ') : (scrapedVal || '-'),
+                field.status === 'verified' ? 'Verified' :
+                    field.status === 'mismatch' ? 'Mismatch' :
+                        field.status === 'missing-data-found' ? 'Data Found' : 'Not Found'
+            ];
+        });
+
+        autoTable(doc, {
+            startY: 90,
+            head: [['Field', 'Input Data', 'Verified Data', 'Status']],
+            body: tableData,
+            headStyles: { fillColor: [26, 35, 50] },
+            alternateRowStyles: { fillColor: [245, 247, 250] },
+            didParseCell: function (data) {
+                if (data.section === 'body' && data.column.index === 3) {
+                    const status = data.cell.raw;
+                    if (status === 'Verified') {
+                        data.cell.styles.textColor = [27, 94, 32]; // Green
+                        data.cell.styles.fontStyle = 'bold';
+                    } else if (status === 'Mismatch') {
+                        data.cell.styles.textColor = [183, 28, 28]; // Red
+                        data.cell.styles.fontStyle = 'bold';
+                    }
+                }
+            }
+        });
+
+        // Footer
+        const pageCount = doc.internal.getNumberOfPages();
+        for (let i = 1; i <= pageCount; i++) {
+            doc.setPage(i);
+            doc.setFontSize(8);
+            doc.setTextColor(150);
+            doc.text('Generated by Provider Verification System', 105, 290, { align: 'center' });
+        }
+
+        doc.save(`Verification_Report_${getDisplayName(report).replace(/[^a-z0-9]/gi, '_')}.pdf`);
+    };
+
 
     // Generate styled HTML for Excel export
     const generateStyledExcelHtml = (data) => {
@@ -1005,7 +1099,7 @@ const ReportsPage = () => {
                                     <div className="results-window">
                                         <div className="results-window__header">
                                             <div className="results-window__dots">
-                                                <button 
+                                                <button
                                                     className="window-dot window-dot--close"
                                                     onClick={() => setShowDetailModal(false)}
                                                     title="Close"
@@ -1015,7 +1109,7 @@ const ReportsPage = () => {
                                                     </svg>
                                                 </button>
                                                 <span className="window-dot window-dot--minimize" title="Minimize"></span>
-                                                <button 
+                                                <button
                                                     className="window-dot window-dot--maximize"
                                                     onClick={() => setIsExpanded(!isExpanded)}
                                                     title={isExpanded ? "Contract" : "Expand"}
@@ -1031,7 +1125,17 @@ const ReportsPage = () => {
                                             </div>
                                             <span>Provider Validation Results</span>
                                             <span className="results-window__id">{selectedReport.verification_id}</span>
-                                        </div>
+
+                                            <button
+                                                className="download-pdf-btn"
+                                                onClick={() => handleDownloadPDF(selectedReport)}
+                                                title="Download PDF Report"
+                                            >
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                    <path d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                </svg>
+                                                <span>PDF</span>
+                                            </button></div>
 
                                         <div className="results-window__content">
                                             {/* Provider Summary */}

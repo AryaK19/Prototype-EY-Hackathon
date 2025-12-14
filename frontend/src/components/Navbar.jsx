@@ -20,6 +20,7 @@ const Navbar = () => {
   const navLinks = [
     { path: '/', label: 'Home' },
     { path: '/verify', label: 'Verify!' },
+    { path: '/reports', label: 'Reports' }
   ];
 
   return (

@@ -149,18 +149,18 @@ const FieldConfidenceChart = ({ fields }) => {
                             <motion.div
                                 className={`field-bar__fill field-bar__fill--${field.status}`}
                                 initial={{ width: 0 }}
-                                animate={{ 
-                                    width: field.status === 'verified' ? '100%' : 
-                                           field.status === 'mismatch' ? '100%' : 
-                                           field.status === 'missing-data-found' ? '75%' : '30%' 
+                                animate={{
+                                    width: field.status === 'verified' ? '100%' :
+                                        field.status === 'mismatch' ? '100%' :
+                                            field.status === 'missing-data-found' ? '75%' : '30%'
                                 }}
                                 transition={{ duration: 0.6, delay: 0.3 + index * 0.1 }}
                             />
                         </div>
                         <span className={`field-bar__status field-bar__status--${field.status}`}>
-                            {field.status === 'verified' ? '✓' : 
-                             field.status === 'mismatch' ? '✗' : 
-                             field.status === 'missing-data-found' ? '📋' : '?'}
+                            {field.status === 'verified' ? '✓' :
+                                field.status === 'mismatch' ? '✗' :
+                                    field.status === 'missing-data-found' ? '📋' : '?'}
                         </span>
                     </motion.div>
                 ))}
@@ -299,6 +299,8 @@ const ReportsPage = () => {
     const [submitResult, setSubmitResult] = useState(null);
     const [showDetailModal, setShowDetailModal] = useState(false);
     const [selectedReport, setSelectedReport] = useState(null);
+    const [isVerifyingAll, setIsVerifyingAll] = useState(false);
+    const [verifyAllResult, setVerifyAllResult] = useState(null);
 
     // Fetch reports from API
     const fetchReports = async () => {
@@ -365,6 +367,31 @@ const ReportsPage = () => {
         setCurrentPage(1);
     };
 
+    // Handle verify all doctors
+    const handleVerifyAll = async () => {
+        setIsVerifyingAll(true);
+        setVerifyAllResult(null);
+        try {
+            const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
+            const response = await fetch(`${backendUrl}/api/doctor/verify-all`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const result = await response.json();
+            if (response.ok) {
+                setVerifyAllResult({ success: true, data: result });
+                fetchReports();
+            } else {
+                setVerifyAllResult({ success: false, error: result.detail || 'Verification failed' });
+            }
+        } catch (error) {
+            console.error('Error running verify all:', error);
+            setVerifyAllResult({ success: false, error: 'Failed to connect to server' });
+        } finally {
+            setIsVerifyingAll(false);
+        }
+    };
+
     const formatDate = (dateString) => {
         return new Date(dateString).toLocaleDateString('en-US', {
             year: 'numeric',
@@ -389,7 +416,7 @@ const ReportsPage = () => {
     };
 
     const calculateVerificationStats = (report) => {
-        if (!report || !report.verification_data) return {
+        if (!report) return {
             verified: 0,
             unverified: 0,
             notFound: 0,
@@ -400,7 +427,17 @@ const ReportsPage = () => {
             sources: []
         };
 
-        const fieldNames = ['fullName', 'specialty', 'address', 'phoneNumber', 'licenseNumber', 'insuranceNetworks', 'servicesOffered'];
+        // Map field names to their database column prefixes
+        const fieldMapping = {
+            fullName: { prefix: 'full_name', label: 'Full Name', icon: '👤' },
+            specialty: { prefix: 'specialty', label: 'Specialty', icon: '🏥' },
+            address: { prefix: 'address', label: 'Address', icon: '📍' },
+            phoneNumber: { prefix: 'phone_number', label: 'Phone Number', icon: '📞' },
+            licenseNumber: { prefix: 'license_number', label: 'License Number', icon: '🪪' },
+            insuranceNetworks: { prefix: 'insurance_networks', label: 'Insurance Networks', icon: '🏛️' },
+            servicesOffered: { prefix: 'services_offered', label: 'Services Offered', icon: '⚕️' },
+        };
+
         let verified = 0;
         let unverified = 0;
         let notFound = 0;
@@ -408,42 +445,40 @@ const ReportsPage = () => {
         const fields = [];
         const sources = [];
 
-        fieldNames.forEach(fieldName => {
-            const fieldData = report.verification_data[fieldName];
-            const config = FIELD_CONFIG[fieldName];
-            
+        Object.entries(fieldMapping).forEach(([fieldName, config]) => {
+            const inputValue = report[config.prefix + '_input'];
+            const scrapedValue = report[config.prefix + '_scraped'];
+            const matches = report[config.prefix + '_matches'];
+            const source = report[config.prefix + '_scraped_from'];
+
             let status = 'notfound';
-            if (fieldData) {
-                if (fieldData.status === 'verified') {
-                    verified++;
-                    status = 'verified';
-                } else if (fieldData.status === 'mismatch') {
-                    unverified++;
-                    status = 'mismatch';
-                } else if (fieldData.status === 'missing_data_found') {
-                    missingDataFound++;
-                    status = 'missing-data-found';
-                } else {
-                    notFound++;
-                }
-                
-                // Add source info
-                if (fieldData.scraped_field_a_source) {
-                    sources.push(fieldData.scraped_field_a_source);
-                }
+
+            if (matches === true) {
+                verified++;
+                status = 'verified';
+            } else if (matches === false) {
+                unverified++;
+                status = 'mismatch';
+            } else if (!inputValue && scrapedValue) {
+                missingDataFound++;
+                status = 'missing-data-found';
             } else {
                 notFound++;
             }
-            
+
+            if (source) {
+                sources.push(source);
+            }
+
             fields.push({
                 name: fieldName,
-                label: config?.label || fieldName,
-                icon: config?.icon || '📄',
+                label: config.label,
+                icon: config.icon,
                 status
             });
         });
 
-        const totalFields = fieldNames.length;
+        const totalFields = Object.keys(fieldMapping).length;
         const confidence = Math.round((verified / totalFields) * 100);
 
         return {
@@ -523,9 +558,9 @@ const ReportsPage = () => {
         if (!fieldData) return null;
 
         const config = fieldConfig[fieldName];
-        const status = fieldData.matches === true ? 'verified' : 
-                     fieldData.matches === false ? 'mismatch' : 'not-found';
-        
+        const status = fieldData.matches === true ? 'verified' :
+            fieldData.matches === false ? 'mismatch' : 'not-found';
+
         const inputValue = fieldData.input_field_a;
         const scrapedValue = fieldData.scraped_data_field_a;
         const source = fieldData.scraped_from;
@@ -544,8 +579,8 @@ const ReportsPage = () => {
                         <span className="result-field__label">{config.label}</span>
                     </div>
                     <span className={`result-field__status result-field__status--${status}`}>
-                        {status === 'verified' ? '✓ Verified' : 
-                         status === 'mismatch' ? '✗ Mismatch' : '? Not Found'}
+                        {status === 'verified' ? '✓ Verified' :
+                            status === 'mismatch' ? '✗ Mismatch' : '? Not Found'}
                     </span>
                 </div>
                 <div className="result-field__content">
@@ -575,7 +610,7 @@ const ReportsPage = () => {
         <div className="reports-page">
             {/* Header */}
             <div className="reports-header">
-                <motion.div 
+                <motion.div
                     className="reports-header-content"
                     initial={{ opacity: 0, y: -20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -588,12 +623,44 @@ const ReportsPage = () => {
                             specialty classifications, and verification timestamps.
                         </p>
                     </div>
+                    <motion.button
+                        className="verify-all-button"
+                        onClick={handleVerifyAll}
+                        disabled={isVerifyingAll}
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                    >
+                        {isVerifyingAll ? (
+                            <><div className="verify-all-button__spinner" />Verifying...</>
+                        ) : (
+                            <><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>Run Verify All</>
+                        )}
+                    </motion.button>
                 </motion.div>
             </div>
 
+            {/* Verify All Result Notification */}
+            {verifyAllResult && (
+                <motion.div
+                    className={`verify-all-notification ${verifyAllResult.success ? 'verify-all-notification--success' : 'verify-all-notification--error'}`}
+                    initial={{ opacity: 0, y: -30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3 }}
+                >
+                    <div className="verify-all-notification__content">
+                        {verifyAllResult.success ? (
+                            <p>✅ Bulk verification complete: {verifyAllResult.data.successful} successful, {verifyAllResult.data.failed} failed, {verifyAllResult.data.skipped} skipped</p>
+                        ) : (
+                            <p>❌ {verifyAllResult.error}</p>
+                        )}
+                    </div>
+                    <button className="verify-all-notification__close" onClick={() => setVerifyAllResult(null)}>×</button>
+                </motion.div>
+            )}
+
             {/* Filters */}
             <div className="reports-filters">
-                <motion.div 
+                <motion.div
                     className="search-container"
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -613,7 +680,7 @@ const ReportsPage = () => {
                     </div>
                 </motion.div>
 
-                <motion.div 
+                <motion.div
                     className="specialty-filter"
                     initial={{ opacity: 0, x: 20 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -650,7 +717,7 @@ const ReportsPage = () => {
             </div>
 
             {/* Specialty Tags */}
-            <motion.div 
+            <motion.div
                 className="specialty-tags"
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -675,7 +742,7 @@ const ReportsPage = () => {
                         <p>Loading reports...</p>
                     </div>
                 ) : reports.length === 0 ? (
-                    <motion.div 
+                    <motion.div
                         className="no-reports"
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
@@ -683,14 +750,14 @@ const ReportsPage = () => {
                     >
                         <div className="no-reports-icon">
                             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M9 12L11 14L15 10M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M9 12L11 14L15 10M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                             </svg>
                         </div>
                         <h3>No Reports Found</h3>
                         <p>Try adjusting your search criteria or filters</p>
                     </motion.div>
                 ) : (
-                    <motion.div 
+                    <motion.div
                         className="reports-grid"
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
@@ -732,7 +799,7 @@ const ReportsPage = () => {
                                     </div>
 
                                     <div className="report-card-footer">
-                                        <motion.button 
+                                        <motion.button
                                             className="view-report-button"
                                             whileHover={{ scale: 1.02 }}
                                             whileTap={{ scale: 0.98 }}
@@ -753,7 +820,7 @@ const ReportsPage = () => {
 
             {/* Pagination */}
             {totalCount > 0 && (
-                <motion.div 
+                <motion.div
                     className="pagination-container"
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -815,7 +882,7 @@ const ReportsPage = () => {
                         {(() => {
                             const convertedData = convertReportToVerifyFormat(selectedReport);
                             const resultStats = calculateVerificationStats(selectedReport);
-                            
+
                             return (
                                 <motion.div
                                     className="verification-results"

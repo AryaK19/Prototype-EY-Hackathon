@@ -98,3 +98,17 @@ class GetReportsResponse(BaseModel):
     limit: int
     has_next: bool
     has_previous: bool
+
+class VerifyAllProgressItem(BaseModel):
+    verification_id: str
+    full_name: str
+    status: str  # 'success', 'failed', 'skipped'
+    message: Optional[str] = None
+
+class VerifyAllResponse(BaseModel):
+    total_processed: int
+    successful: int
+    failed: int
+    skipped: int
+    results: List[VerifyAllProgressItem]
+    timestamp: str

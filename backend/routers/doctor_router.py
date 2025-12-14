@@ -22,7 +22,9 @@ from schemas.doctor_router import (
     VerificationResult,
     SearchResult,
     GetReportsResponse,
-    DoctorReportResponse
+    DoctorReportResponse,
+    VerifyAllResponse,
+    VerifyAllProgressItem
 )
 
 # Import route constants
@@ -33,7 +35,8 @@ from config.route_config import (
     GET_INSURANCE_NETWORKS,
     EXTRACT_PDF,
     HEALTH_CHECK,
-    GET_REPORTS
+    GET_REPORTS,
+    VERIFY_ALL_DOCTORS
 )
 
 # Add helpers to path
@@ -1323,3 +1326,130 @@ async def get_reports(
     except Exception as e:
         logger.error(f"Error fetching reports: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch reports: {str(e)}")
+
+@router.post(VERIFY_ALL_DOCTORS, response_model=VerifyAllResponse)
+async def verify_all_doctors(db: Session = Depends(get_db)):
+    """
+    Run verification for all doctors in the database and update their reports.
+    This endpoint iterates through all existing DoctorReport records,
+    re-runs the verification process, and updates the results.
+    """
+    try:
+        logger.info("Starting bulk verification for all doctors in database")
+        
+        # Fetch all existing reports
+        all_reports = db.query(DoctorReport).all()
+        
+        results = []
+        successful = 0
+        failed = 0
+        skipped = 0
+        
+        for report in all_reports:
+            try:
+                # Check if we have minimum required data for verification
+                full_name = report.full_name_input or report.full_name_scraped
+                specialty = report.specialty_input or report.specialty_scraped
+                
+                if not full_name or not specialty:
+                    results.append(VerifyAllProgressItem(
+                        verification_id=report.verification_id,
+                        full_name=full_name or "Unknown",
+                        status="skipped",
+                        message="Missing required fields (name or specialty)"
+                    ))
+                    skipped += 1
+                    continue
+                
+                # Create verification request from existing data
+                verification_request = DoctorVerificationRequest(
+                    fullName=full_name,
+                    specialty=specialty,
+                    address=report.address_input,
+                    phoneNumber=report.phone_number_input,
+                    licenseNumber=report.license_number_input,
+                    insuranceNetworks=report.insurance_networks_input,
+                    servicesOffered=report.services_offered_input[0] if isinstance(report.services_offered_input, list) and report.services_offered_input else (report.services_offered_input if isinstance(report.services_offered_input, str) else None)
+                )
+                
+                # Search for doctor information
+                scraped_data = search_doctor_info(full_name, specialty)
+                
+                # Analyze verification results
+                verification_result = await analyze_verification(verification_request, scraped_data)
+                
+                # Update the existing report with new verification results
+                report.full_name_input = verification_result["fullName"]["input_field_a"]
+                report.full_name_scraped = verification_result["fullName"]["scraped_data_field_a"]
+                report.full_name_scraped_from = verification_result["fullName"]["scraped_from"]
+                report.full_name_matches = verification_result["fullName"]["matches"]
+                
+                report.specialty_input = verification_result["specialty"]["input_field_a"]
+                report.specialty_scraped = verification_result["specialty"]["scraped_data_field_a"]
+                report.specialty_scraped_from = verification_result["specialty"]["scraped_from"]
+                report.specialty_matches = verification_result["specialty"]["matches"]
+                
+                report.address_input = verification_result["address"]["input_field_a"]
+                report.address_scraped = verification_result["address"]["scraped_data_field_a"]
+                report.address_scraped_from = verification_result["address"]["scraped_from"]
+                report.address_matches = verification_result["address"]["matches"]
+                
+                report.phone_number_input = verification_result["phoneNumber"]["input_field_a"]
+                report.phone_number_scraped = verification_result["phoneNumber"]["scraped_data_field_a"]
+                report.phone_number_scraped_from = verification_result["phoneNumber"]["scraped_from"]
+                report.phone_number_matches = verification_result["phoneNumber"]["matches"]
+                
+                report.license_number_input = verification_result["licenseNumber"]["input_field_a"]
+                report.license_number_scraped = verification_result["licenseNumber"]["scraped_data_field_a"]
+                report.license_number_scraped_from = verification_result["licenseNumber"]["scraped_from"]
+                report.license_number_matches = verification_result["licenseNumber"]["matches"]
+                
+                report.insurance_networks_input = verification_result["insuranceNetworks"]["input_field_a"]
+                report.insurance_networks_scraped = verification_result["insuranceNetworks"]["scraped_data_field_a"]
+                report.insurance_networks_scraped_from = verification_result["insuranceNetworks"]["scraped_from"]
+                report.insurance_networks_matches = verification_result["insuranceNetworks"]["matches"]
+                
+                report.services_offered_input = verification_result["servicesOffered"]["input_field_a"]
+                report.services_offered_scraped = verification_result["servicesOffered"]["scraped_data_field_a"]
+                report.services_offered_scraped_from = verification_result["servicesOffered"]["scraped_from"]
+                report.services_offered_matches = verification_result["servicesOffered"]["matches"]
+                
+                # Commit the update
+                db.commit()
+                
+                results.append(VerifyAllProgressItem(
+                    verification_id=report.verification_id,
+                    full_name=full_name,
+                    status="success",
+                    message="Verification updated successfully"
+                ))
+                successful += 1
+                
+                logger.info(f"Successfully re-verified doctor: {full_name}")
+                
+            except Exception as e:
+                logger.error(f"Error verifying doctor {report.verification_id}: {str(e)}")
+                db.rollback()
+                results.append(VerifyAllProgressItem(
+                    verification_id=report.verification_id,
+                    full_name=report.full_name_input or report.full_name_scraped or "Unknown",
+                    status="failed",
+                    message=str(e)
+                ))
+                failed += 1
+        
+        response = VerifyAllResponse(
+            total_processed=len(all_reports),
+            successful=successful,
+            failed=failed,
+            skipped=skipped,
+            results=results,
+            timestamp=datetime.now().isoformat()
+        )
+        
+        logger.info(f"Bulk verification completed: {successful} successful, {failed} failed, {skipped} skipped")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error in bulk verification: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Bulk verification failed: {str(e)}")

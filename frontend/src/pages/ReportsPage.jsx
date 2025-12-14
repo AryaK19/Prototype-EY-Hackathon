@@ -416,52 +416,99 @@ const ReportsPage = () => {
         setShowDetailModal(true);
     };
 
-    // Download reports as Excel
+    // Download reports as Excel with styling
     const handleDownloadExcel = () => {
         if (reports.length === 0) return;
 
-        // Prepare data for Excel
+        // Prepare data for Excel with styling info
         const excelData = reports.map(report => {
             const stats = calculateVerificationStats(report);
+            const needsAttention = stats.confidence < 70 || stats.unverified > 0;
             return {
-                'Verification ID': report.verification_id || 'N/A',
-                'Provider Name': report.full_name_input || report.full_name_scraped || 'N/A',
-                'Specialty': report.specialty_input || report.specialty_scraped || 'N/A',
-                'Address (Input)': report.address_input || 'N/A',
-                'Address (Found)': report.address_scraped || 'N/A',
-                'Phone (Input)': report.phone_number_input || 'N/A',
-                'Phone (Found)': report.phone_number_scraped || 'N/A',
-                'License Number (Input)': report.license_number_input || 'N/A',
-                'License Number (Found)': report.license_number_scraped || 'N/A',
-                'Insurance Networks (Input)': Array.isArray(report.insurance_networks_input) ? report.insurance_networks_input.join(', ') : (report.insurance_networks_input || 'N/A'),
-                'Insurance Networks (Found)': Array.isArray(report.insurance_networks_scraped) ? report.insurance_networks_scraped.join(', ') : (report.insurance_networks_scraped || 'N/A'),
-                'Services Offered (Input)': Array.isArray(report.services_offered_input) ? report.services_offered_input.join(', ') : (report.services_offered_input || 'N/A'),
-                'Services Offered (Found)': Array.isArray(report.services_offered_scraped) ? report.services_offered_scraped.join(', ') : (report.services_offered_scraped || 'N/A'),
-                'Verified Fields': stats.verified,
-                'Mismatched Fields': stats.unverified,
-                'Not Found Fields': stats.notFound,
-                'Confidence Score': `${stats.confidence}%`,
-                'Verification Date': report.created_at ? new Date(report.created_at).toLocaleString() : 'N/A'
+                data: {
+                    'Verification ID': report.verification_id || 'N/A',
+                    'Provider Name': report.full_name_input || report.full_name_scraped || 'N/A',
+                    'Specialty': report.specialty_input || report.specialty_scraped || 'N/A',
+                    'Address (Input)': report.address_input || 'N/A',
+                    'Address (Found)': report.address_scraped || 'N/A',
+                    'Phone (Input)': report.phone_number_input || 'N/A',
+                    'Phone (Found)': report.phone_number_scraped || 'N/A',
+                    'License (Input)': report.license_number_input || 'N/A',
+                    'License (Found)': report.license_number_scraped || 'N/A',
+                    'Verified': stats.verified,
+                    'Mismatched': stats.unverified,
+                    'Not Found': stats.notFound,
+                    'Confidence': stats.confidence,
+                    'Status': stats.confidence >= 70 ? 'Verified' : stats.unverified > 0 ? 'Needs Review' : 'Incomplete',
+                    'Date': report.created_at ? new Date(report.created_at).toLocaleDateString() : 'N/A'
+                },
+                needsAttention,
+                confidence: stats.confidence,
+                mismatches: stats.unverified
             };
         });
 
-        // Create workbook and worksheet
-        const wb = XLSX.utils.book_new();
-        const ws = XLSX.utils.json_to_sheet(excelData);
-
-        // Set column widths
-        ws['!cols'] = [
-            { wch: 25 }, { wch: 25 }, { wch: 20 }, { wch: 35 }, { wch: 35 },
-            { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 20 },
-            { wch: 30 }, { wch: 30 }, { wch: 30 }, { wch: 30 },
-            { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 20 }
-        ];
-
-        XLSX.utils.book_append_sheet(wb, ws, 'Verification Reports');
-
-        // Generate filename with date
+        // Generate styled HTML table for Excel
+        const html = generateStyledExcelHtml(excelData);
+        const blob = new Blob([html], { type: 'application/vnd.ms-excel' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
         const date = new Date().toISOString().split('T')[0];
-        XLSX.writeFile(wb, `Provider_Verification_Reports_${date}.xlsx`);
+        link.download = `Provider_Verification_Reports_${date}.xls`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    };
+
+    // Generate styled HTML for Excel export
+    const generateStyledExcelHtml = (data) => {
+        const headers = Object.keys(data[0]?.data || {});
+
+        let html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+        <head><meta charset="UTF-8">
+        <style>
+            table { border-collapse: collapse; font-family: Calibri, Arial; font-size: 11pt; }
+            th { background-color: #1a2332; color: #ffffff; font-weight: bold; padding: 10px 8px; border: 1px solid #0d1421; text-align: center; }
+            td { padding: 8px; border: 1px solid #dee2e6; }
+            .attention { background-color: #ffebee !important; }
+            .attention td { background-color: #ffebee; }
+            .good { background-color: #e8f5e9; }
+            .good td { background-color: #e8f5e9; }
+        </style></head><body><table>
+        <tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>`;
+
+        data.forEach(row => {
+            const cls = row.needsAttention ? 'attention' : (row.confidence >= 70 ? 'good' : '');
+
+            html += `<tr class="${cls}">`;
+            headers.forEach(h => {
+                let style = '';
+                let val = row.data[h];
+
+                if (h === 'Confidence') {
+                    style = row.confidence >= 70 ? 'color:#1b5e20;font-weight:bold' : 'color:#b71c1c;font-weight:bold';
+                    val = val + '%';
+                } else if (h === 'Status') {
+                    if (val === 'Verified') style = 'color:#1b5e20;font-weight:bold;background-color:#c8e6c9';
+                    else if (val === 'Needs Review') style = 'color:#b71c1c;font-weight:bold;background-color:#ffcdd2';
+                    else style = 'color:#e65100;font-weight:bold;background-color:#fff3e0';
+                } else if (h === 'Mismatched' && row.mismatches > 0) {
+                    style = 'color:#b71c1c;font-weight:bold';
+                } else if (h === 'Provider Name') {
+                    style = 'font-weight:bold';
+                } else if (h === 'Verified') {
+                    style = 'color:#1b5e20;font-weight:bold';
+                }
+
+                html += `<td style="${style}">${val}</td>`;
+            });
+            html += '</tr>';
+        });
+
+        html += '</table></body></html>';
+        return html;
     };
 
     const calculateVerificationStats = (report) => {

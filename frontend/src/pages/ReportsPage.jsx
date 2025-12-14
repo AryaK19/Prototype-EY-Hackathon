@@ -302,6 +302,7 @@ const ReportsPage = () => {
     const [selectedReport, setSelectedReport] = useState(null);
     const [isVerifyingAll, setIsVerifyingAll] = useState(false);
     const [verifyAllResult, setVerifyAllResult] = useState(null);
+    const [isExpanded, setIsExpanded] = useState(false);
 
     // Fetch reports from API
     const fetchReports = async () => {
@@ -413,6 +414,7 @@ const ReportsPage = () => {
 
     const handleViewReport = (report) => {
         setSelectedReport(report);
+        setIsExpanded(false);
         setShowDetailModal(true);
     };
 
@@ -993,7 +995,7 @@ const ReportsPage = () => {
 
                             return (
                                 <motion.div
-                                    className="verification-results"
+                                    className={`verification-results ${isExpanded ? 'verification-results--expanded' : 'verification-results--popup'}`}
                                     initial={{ opacity: 0, scale: 0.95 }}
                                     animate={{ opacity: 1, scale: 1 }}
                                     exit={{ opacity: 0, scale: 0.95 }}
@@ -1003,7 +1005,29 @@ const ReportsPage = () => {
                                     <div className="results-window">
                                         <div className="results-window__header">
                                             <div className="results-window__dots">
-                                                <span></span><span></span><span></span>
+                                                <button 
+                                                    className="window-dot window-dot--close"
+                                                    onClick={() => setShowDetailModal(false)}
+                                                    title="Close"
+                                                >
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                                        <path d="M6 18L18 6M6 6l12 12" />
+                                                    </svg>
+                                                </button>
+                                                <span className="window-dot window-dot--minimize" title="Minimize"></span>
+                                                <button 
+                                                    className="window-dot window-dot--maximize"
+                                                    onClick={() => setIsExpanded(!isExpanded)}
+                                                    title={isExpanded ? "Contract" : "Expand"}
+                                                >
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                                        {isExpanded ? (
+                                                            <path d="M4 14h6v6M20 10h-6V4" />
+                                                        ) : (
+                                                            <path d="M15 3h6v6M9 21H3v-6" />
+                                                        )}
+                                                    </svg>
+                                                </button>
                                             </div>
                                             <span>Provider Validation Results</span>
                                             <span className="results-window__id">{selectedReport.verification_id}</span>
@@ -1133,11 +1157,7 @@ const ReportsPage = () => {
                                     </div>
 
                                     {/* Results Actions */}
-                                    <div className="results-actions">
-                                        <button onClick={() => setShowDetailModal(false)} className="btn btn--primary btn--lg">
-                                            <span>🔙</span> Back to Reports
-                                        </button>
-                                    </div>
+                                    {/* Results Actions - Removed */}
                                 </motion.div>
                             );
                         })()}

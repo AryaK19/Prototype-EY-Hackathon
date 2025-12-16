@@ -128,8 +128,7 @@ class DoctorInfoScraper:
             if healthgrades_data.get("services_offered"):
                 doctor_info["services_offered"].extend(healthgrades_data["services_offered"])
             doctor_info["scraped_sources"].append("Healthgrades")
-        
-        # Step 4: Search WebMD for comprehensive insurance verification (LAST and MOST IMPORTANT)
+          # Step 4: Search WebMD for comprehensive insurance verification (LAST and MOST IMPORTANT)
         logger.info("Step 4: Searching WebMD for insurance verification...")
         webmd_data = self._search_webmd(name, specialty, best_address)
         if webmd_data:
@@ -138,13 +137,21 @@ class DoctorInfoScraper:
                 doctor_info["affiliated_insurance_networks"].extend(webmd_data["affiliated_insurance_networks"])
                 # Remove duplicates
                 doctor_info["affiliated_insurance_networks"] = list(set(doctor_info["affiliated_insurance_networks"]))
+                logger.info(f"📋 Added {len(webmd_data['affiliated_insurance_networks'])} insurance plans from WebMD")
             if webmd_data.get("services_offered"):
                 doctor_info["services_offered"].extend(webmd_data["services_offered"])
             if webmd_data.get("phone_number") and not doctor_info.get("phone_number"):
                 doctor_info["phone_number"] = webmd_data["phone_number"]
             if webmd_data.get("address") and not doctor_info.get("address"):
                 doctor_info["address"] = webmd_data["address"]
+            if webmd_data.get("rating"):
+                doctor_info["rating"] = webmd_data["rating"]
+            if webmd_data.get("webmd_profile_url"):
+                doctor_info["webmd_profile_url"] = webmd_data["webmd_profile_url"]
             doctor_info["scraped_sources"].append("WebMD")
+        else:
+            logger.warning("⚠️ No WebMD data returned")
+            logger.info(f"Current insurance networks: {doctor_info['affiliated_insurance_networks']}")
             
         # Step 5: Search State Medical Board (generic approach)
         logger.info("Step 5: Searching State Medical Board information...")
@@ -398,9 +405,7 @@ class DoctorInfoScraper:
             state = self._extract_state_from_address(address) if address else None
             
             # Map specialty to WebMD format
-            webmd_specialty = self._map_specialty_to_webmd(specialty)
-            
-            # Use Playwright for WebMD scraping - run in new event loop if needed
+            webmd_specialty = self._map_specialty_to_webmd(specialty)            # Use Playwright for WebMD scraping - run in new event loop if needed
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
@@ -408,13 +413,17 @@ class DoctorInfoScraper:
                     import concurrent.futures
                     with concurrent.futures.ThreadPoolExecutor() as executor:
                         future = executor.submit(self._run_webmd_scraping_sync, name, webmd_specialty, state)
-                        return future.result(timeout=60)  # Add timeout
+                        return future.result(timeout=180)  # Increased timeout to 180 seconds (3 minutes)
                 else:
                     # No event loop running, safe to use async
                     return asyncio.run(self._scrape_webmd_with_playwright(name, webmd_specialty, state))
             except RuntimeError:
                 # No event loop, create one
                 return asyncio.run(self._scrape_webmd_with_playwright(name, webmd_specialty, state))
+            except concurrent.futures.TimeoutError:
+                logger.error(f"⏱️ WebMD scraping timeout after 180 seconds")
+                logger.warning("⚠️ WebMD scraping took too long - this may indicate network issues or slow page loading")
+                return {}
                     
         except Exception as e:
             logger.error(f"WebMD search error: {str(e)}")

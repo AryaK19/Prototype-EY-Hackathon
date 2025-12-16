@@ -9,6 +9,7 @@ requests
 beautifulsoup4
 lxml
 python-dotenv
+playwright
 PyPDF2
 pdfplumber
 sqlalchemy

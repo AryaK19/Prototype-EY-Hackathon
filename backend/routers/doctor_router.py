@@ -7,6 +7,7 @@ import os
 from datetime import datetime
 import json
 import re
+import traceback
 import PyPDF2
 import pdfplumber
 from io import BytesIO
@@ -567,9 +568,19 @@ def verify_insurance_networks(input_networks: List[str], scraped_data: Dict, bes
     }
     
     try:
-        if best_provider and isinstance(best_provider, dict):
+        found_networks = []
+        data_source = None
+        
+        # First try WebMD data (more comprehensive insurance info)
+        webmd_insurance = scraped_data.get("affiliated_insurance_networks", [])
+        if webmd_insurance and isinstance(webmd_insurance, list):
+            found_networks = list(webmd_insurance)  # WebMD provides verified insurance networks
+            data_source = "WebMD"
+            logger.debug(f"Found {len(found_networks)} insurance networks from WebMD: {found_networks}")
+        
+        # If no WebMD data, fall back to NPI Registry
+        if not found_networks and best_provider and isinstance(best_provider, dict):
             identifiers = best_provider.get("identifiers", [])
-            found_networks = []
             
             if isinstance(identifiers, list):
                 for identifier in identifiers:
@@ -597,17 +608,26 @@ def verify_insurance_networks(input_networks: List[str], scraped_data: Dict, bes
                             found_networks.append("UnitedHealthcare")
             
             if found_networks:
-                unique_networks = list(set(found_networks))
-                result["scraped_data_field_a"] = unique_networks
-                result["scraped_from"] = "NPI Registry"
-                
-                if input_networks and len(input_networks) > 0:
-                    input_set = set(input_networks)
-                    found_set = set(unique_networks)
-                    matches = len(input_set & found_set)
-                    result["matches"] = matches > 0
-                else:
-                    result["matches"] = None
+                data_source = "NPI Registry"
+                logger.debug(f"Found {len(found_networks)} insurance networks from NPI Registry: {found_networks}")
+        
+        # Set results if we found any networks
+        if found_networks:
+            unique_networks = list(set(found_networks))  # Remove duplicates
+            result["scraped_data_field_a"] = unique_networks
+            result["scraped_from"] = data_source
+            
+            if input_networks and len(input_networks) > 0:
+                input_set = set(input_networks)
+                found_set = set(unique_networks)
+                matches = len(input_set & found_set)
+                result["matches"] = matches > 0
+                logger.debug(f"Insurance comparison: input={input_networks} vs found={unique_networks} -> matches={result['matches']}")
+            else:
+                result["matches"] = None
+                logger.debug(f"No input networks provided, but found networks: {unique_networks}")
+        else:
+            logger.debug("No insurance networks found in any source")
                     
     except Exception as e:
         logger.error(f"Error in verify_insurance_networks: {str(e)}")
@@ -660,9 +680,8 @@ async def verify_doctor(request: DoctorVerificationRequest, db: Session = Depend
         logger.info(f"Starting doctor verification for: {request.fullName}")
         
         # Generate verification ID
-        verification_id = f"VER_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hash(request.fullName) % 10000:04d}"
-          # Search for doctor information
-        scraped_data = search_doctor_info(request.fullName, request.specialty)
+        verification_id = f"VER_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hash(request.fullName) % 10000:04d}"          # Search for doctor information
+        scraped_data = search_doctor_info(request.fullName, request.specialty, request.address)
         
         # Log scraped data for debugging
         logger.debug(f"Scraped data for {request.fullName}: {scraped_data.keys() if scraped_data else 'None'}")
@@ -875,11 +894,11 @@ async def extract_provider_from_pdf(file: UploadFile = File(...), db: Session = 
             try:
                 # Generate verification ID
                 verification_id = f"VER_PDF_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{hash(verification_request.fullName) % 10000:04d}"
-                
-                # Search for doctor information
+                  # Search for doctor information
                 scraped_data = search_doctor_info(
                     verification_request.fullName,
-                    verification_request.specialty
+                    verification_request.specialty,
+                    verification_request.address
                 )
                 
                 # Analyze verification results
@@ -1371,9 +1390,8 @@ async def verify_all_doctors(db: Session = Depends(get_db)):
                     insuranceNetworks=report.insurance_networks_input,
                     servicesOffered=report.services_offered_input[0] if isinstance(report.services_offered_input, list) and report.services_offered_input else (report.services_offered_input if isinstance(report.services_offered_input, str) else None)
                 )
-                
-                # Search for doctor information
-                scraped_data = search_doctor_info(full_name, specialty)
+                  # Search for doctor information
+                scraped_data = search_doctor_info(full_name, specialty, report.address_input)
                 
                 # Analyze verification results
                 verification_result = await analyze_verification(verification_request, scraped_data)

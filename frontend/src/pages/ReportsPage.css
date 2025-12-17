@@ -686,6 +686,25 @@
   margin-top: 2rem;
 }
 
+/* Ensure VerifyPage result-field layout looks correct inside ReportsPage */
+.reports-page .result-field__comparison {
+  grid-template-columns: 1fr auto 1fr;
+  gap: 1rem;
+}
+
+.reports-page .result-field__value {
+  min-height: 72px; /* keep value blocks consistent height */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.reports-page .result-field__arrow svg {
+  width: 20px;
+  height: 20px;
+  color: #64748b;
+}
+
 .reports-page .btn {
   display: inline-flex;
   align-items: center;

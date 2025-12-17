@@ -735,7 +735,7 @@ const ReportsPage = () => {
         };
     };
 
-    // Render verification result field (same as VerifyPage)
+    // Render verification result field (use VerifyPage layout: input -> arrow -> scraped)
     const renderResultField = (fieldName, fieldData) => {
         const fieldConfig = {
             fullName: { label: 'Full Name', icon: '👤' },
@@ -750,50 +750,58 @@ const ReportsPage = () => {
         if (!fieldData) return null;
 
         const config = fieldConfig[fieldName];
-        const status = fieldData.matches === true ? 'verified' :
-            fieldData.matches === false ? 'mismatch' : 'not-found';
-
         const inputValue = fieldData.input_field_a;
         const scrapedValue = fieldData.scraped_data_field_a;
         const source = fieldData.scraped_from;
+
+        const status = fieldData.matches === true ? 'match' :
+            fieldData.matches === false ? 'mismatch' :
+            (!inputValue && scrapedValue) ? 'missing-data' : 'missing-data';
+
+        const statusText = status === 'match' ? '✓ Verified' : status === 'mismatch' ? '✗ Mismatch' : '📋 Data Found';
 
         return (
             <motion.div
                 key={fieldName}
                 className={`result-field result-field--${status}`}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.3 }}
             >
                 <div className="result-field__header">
-                    <div className="result-field__title">
-                        <span className="result-field__icon">{config.icon}</span>
-                        <span className="result-field__label">{config.label}</span>
-                    </div>
+                    <span className="result-field__icon">{config.icon}</span>
+                    <span className="result-field__label">{config.label}</span>
                     <span className={`result-field__status result-field__status--${status}`}>
-                        {status === 'verified' ? '✓ Verified' :
-                            status === 'mismatch' ? '✗ Mismatch' : '? Not Found'}
+                        {statusText}
                     </span>
                 </div>
-                <div className="result-field__content">
-                    <div className="result-field__comparison">
-                        <div className="result-field__value result-field__value--input">
-                            <span className="result-field__value-label">Input:</span>
-                            <span className="result-field__value-text">
-                                {Array.isArray(inputValue) ? inputValue.join(', ') : inputValue || 'Not provided'}
-                            </span>
-                        </div>
-                        <div className="result-field__value result-field__value--scraped">
-                            <span className="result-field__value-label">Found:</span>
-                            <span className="result-field__value-text">
-                                {Array.isArray(scrapedValue) ? scrapedValue.join(', ') : scrapedValue || 'Not found'}
-                            </span>
-                            {source && (
-                                <span className="result-field__source">via {source}</span>
-                            )}
-                        </div>
+
+                <div className="result-field__comparison">
+                    <div className="result-field__value result-field__value--input">
+                        <span className="result-field__value-label">Your Input</span>
+                        <span className="result-field__value-text">
+                            {Array.isArray(inputValue) ? inputValue.join(', ') : inputValue || (status === 'missing-data' ? 'Not provided' : 'Not provided')}
+                        </span>
+                    </div>
+
+                    <div className="result-field__arrow">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M5 12h14M12 5l7 7-7 7" />
+                        </svg>
+                    </div>
+
+                    <div className="result-field__value result-field__value--scraped">
+                        <span className="result-field__value-label">{source ? `From ${source}` : 'Verified Data'}</span>
+                        <span className="result-field__value-text">{Array.isArray(scrapedValue) ? scrapedValue.join(', ') : scrapedValue || 'Not found'}</span>
                     </div>
                 </div>
+
+                {status === 'missing-data' && (
+                    <div className="result-field__note">
+                        <span className="result-field__note-icon">💡</span>
+                        <span className="result-field__note-text">This information was not provided but was found in our verification sources.</span>
+                    </div>
+                )}
             </motion.div>
         );
     };

@@ -13,5 +13,5 @@ playwright
 PyPDF2
 pdfplumber
 sqlalchemy
-psycopg2
+psycopg2-binary
 
